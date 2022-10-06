@@ -45,7 +45,7 @@ void handle_icmp(struct sr_instance *sr,
                  char *interface);
 
 ARP_Cache arp_head;
-ARP_Buffer buf_head;
+ARP_Buf buf_head;
 
 /*---------------------------------------------------------------------
  * Method: sr_init(struct sr_instance* sr)
@@ -295,7 +295,7 @@ void sr_handleip(struct sr_instance *sr,
     if (cache_temp == NULL)
     {
         // we see if we are still waiting on an ARP request for that IP.
-        ARP_Buffer *check_buf = checkExistsBuf(&buf_head, dest_ip);
+        ARP_Buf *check_buf = checkExistsBuf(&buf_head, dest_ip);
 
         // if we are not waiting, we send out an ARP request.
         if (check_buf == NULL)
@@ -455,7 +455,7 @@ void sr_handlearp(struct sr_instance *sr,
     else if (arp->ar_op == ntohs(2))
     {
         // otherwise if we have an ARP response, we parse it if we are waiting for a response
-        ARP_Buffer *curr = checkExistsBuf(&buf_head, arp->ar_sip);
+        ARP_Buf *curr = checkExistsBuf(&buf_head, arp->ar_sip);
 
         // if we got a response but never sent a request, ignore it
         if (curr == NULL)

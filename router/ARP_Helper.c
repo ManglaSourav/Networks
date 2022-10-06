@@ -37,9 +37,9 @@ unsigned char *checkExists(ARP_Cache *head, uint32_t ip)
 }
 
 // returns the node if exists, NULL if does not
-ARP_Buffer *checkExistsBuf(ARP_Buffer *head, uint32_t ip)
+ARP_Buf *checkExistsBuf(ARP_Buf *head, uint32_t ip)
 {
-    ARP_Buffer *curr = head;
+    ARP_Buf *curr = head;
     while (curr->next != NULL && (curr->next)->ip != ip)
     {
         curr = curr->next;
@@ -53,38 +53,38 @@ ARP_Buffer *checkExistsBuf(ARP_Buffer *head, uint32_t ip)
     return NULL;
 }
 
-void deleteIP(ARP_Buffer *head, uint32_t ip);
+void deleteIP(ARP_Buf *head, uint32_t ip);
 
 // inserts process at beginning of linked list
-ARP_Buffer *insertNewEntry(ARP_Buffer *head, uint32_t ip)
+ARP_Buf *insertNewEntry(ARP_Buf *head, uint32_t ip)
 {
-    ARP_Buffer *new = (ARP_Buffer *)malloc(sizeof(ARP_Buffer));
+    ARP_Buf *new = (ARP_Buf *)malloc(sizeof(ARP_Buf));
     new->ip = ip;
     new->head.next = NULL;
 
-    ARP_Buffer *temp = head->next;
+    ARP_Buf *temp = head->next;
     head->next = new;
     new->next = temp;
 
     return new;
 }
 
-void queueWaiting(ARP_Buffer *spot, uint8_t *packet, unsigned int len)
+void queueWaiting(ARP_Buf *spot, uint8_t *packet, unsigned int len)
 {
-    Waiting_List *new = (Waiting_List *)malloc(sizeof(Waiting_List));
+    Wait_List *new = (Wait_List *)malloc(sizeof(Wait_List));
     new->packet = (uint8_t *)malloc(len);
     memcpy(new->packet, packet, len);
     new->len = len;
 
-    Waiting_List *temp = spot->head.next;
+    Wait_List *temp = spot->head.next;
     spot->head.next = new;
     new->next = temp;
 }
 
 // It is the responsibility of the caller to free the packet after processing.
-uint8_t *extractPacket(ARP_Buffer *spot, unsigned int *len)
+uint8_t *extractPacket(ARP_Buf *spot, unsigned int *len)
 {
-    Waiting_List *temp = spot->head.next;
+    Wait_List *temp = spot->head.next;
     if (temp == NULL)
     {
         return NULL;
