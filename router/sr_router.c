@@ -18,13 +18,13 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netinet/ether.h>
 
 #include "sr_if.h"
 #include "sr_rt.h"
 #include "sr_router.h"
 #include "sr_protocol.h"
-#include "ARP_Cache.h"
-#include "ARP_Buffer.h"
+#include "ARP_Helper.h"
 #include "sr_helpers.h"
 
 void sr_handleip(struct sr_instance *sr,
@@ -90,7 +90,28 @@ void sr_handlepacket(struct sr_instance *sr,
     assert(interface);
 
     struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
+
     auto type = htons(eth->ether_type);
+    // printf("here");
+    // DebugMAC(eth->ether_shost);
+    // 9a:4a:14:78:a0:1f
+    // 9a:4a:14:78:a0:1f
+    // 9a:4a:14:78:a0:1f
+    // return;
+    // (struct ether_addr *)
+    // printf("%s", ether_ntoa(eth->ether_shost));
+    // printk(KERN_INFO "hdr->h_dest 0x%x\n", eth->ether_dhost);
+
+    // printf("\nsrc %d", eth->ether_shost); // 3480110662:1c:f9:61:99:2db2:a7:7f:a1:17:dd52:26:3c:b5:cc:2e
+    // printf("\ndest %d", eth->ether_dhost);
+    // printf("\nsrc %X", eth->ether_shost);
+    // printf("\ndest %X", eth->ether_dhost);
+    // printf("\ndest %s", eth->ether_dhost);
+
+    // printf("\nHere %X", eth);
+    // printf("\n packet id %d", type);
+    // printf("\n packet id hex %X", type);
+
     if (type == ETHERTYPE_ARP)
     {
         sr_handlearp(sr, packet, len, interface);

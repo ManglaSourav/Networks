@@ -8,8 +8,7 @@
 #include "sr_if.h"
 #include "sr_rt.h"
 #include "sr_protocol.h"
-#include "ARP_Cache.h"
-#include "ARP_Buffer.h"
+#include "ARP_Helper.h"
 #include "sr_router.h"
 #include "sr_helpers.h"
 
