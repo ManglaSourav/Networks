@@ -1,5 +1,5 @@
-#ifndef SR_HELPERS
-#define SR_HELPERS
+#ifndef ROUTER_HELPER
+#define ROUTER_HELPER
 
 struct icmp_hdr
 {

@@ -10,11 +10,12 @@
 #include "sr_protocol.h"
 #include "ARP_Helper.h"
 #include "sr_router.h"
-#include "sr_helpers.h"
+#include "router_helper.h"
 
 // HELPER FUNCTIONS
 //
-uint16_t icmp_checksum(uint16_t *addr, int count){
+uint16_t icmp_checksum(uint16_t *addr, int count)
+{
     register uint32_t sum = 0;
 
     while (count > 1)

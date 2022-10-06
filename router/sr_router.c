@@ -25,7 +25,7 @@
 #include "sr_router.h"
 #include "sr_protocol.h"
 #include "ARP_Helper.h"
-#include "sr_helpers.h"
+#include "router_helper.h"
 
 void sr_handleip(struct sr_instance *sr,
                  uint8_t *packet,
