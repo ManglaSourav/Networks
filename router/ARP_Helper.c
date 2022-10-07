@@ -6,94 +6,82 @@
 #include "sr_router.h"
 #include "ARP_Helper.h"
 
-// inserts ARP entry at beginning of linked list
-void insertEntry(ARP_Cache *head, uint32_t ip, unsigned char *addr)
+// inserts ARP entry(at the beginning) into the cache for future ARP request resolution
+void insert_ARPCache_Entry(ARP_Cache *head, uint32_t ip, unsigned char *addr)
 {
     ARP_Cache *new = (ARP_Cache *)malloc(sizeof(ARP_Cache));
+    memcpy(new->mac_addr, addr, sizeof(new->mac_addr));
     new->ip = ip;
-    memcpy(new->addr, addr, sizeof(new->addr));
 
-    ARP_Cache *temp = head->next;
+    // attaching new node to the head of the linked list
+    ARP_Cache *t = head->next;
     head->next = new;
-    new->next = temp;
+    new->next = t;
 }
 
-// returns 1 if exists, 0 if does not. If exists, fill out addr.
-unsigned char *checkExists(ARP_Cache *head, uint32_t ip)
+// if entry present in the cache, return the mac address otherwise return null
+unsigned char *entry_exists_in_cache(ARP_Cache *head, uint32_t ip)
 {
-    ARP_Cache *curr = head;
-    while (curr->next != NULL && (curr->next)->ip != ip)
-    {
-        curr = curr->next;
-    }
+    ARP_Cache *temp = head;
+    while (temp->next != NULL && (temp->next)->ip != ip)
+        temp = temp->next;
 
-    if (curr->next != NULL)
-    {
-        // DebugMAC("%d ", curr->next->ip);
-        return curr->next->addr; // we found it.
-    }
+    if (temp->next != NULL)
+        // TODO: DebugMAC("%d ", temp->next->ip);
+        //  found the entry return the cache
+        return temp->next->mac_addr;
 
     return NULL;
 }
 
-// returns the node if exists, NULL if does not
-ARP_Buf *checkExistsBuf(ARP_Buf *head, uint32_t ip)
-{
-    ARP_Buf *curr = head;
-    while (curr->next != NULL && (curr->next)->ip != ip)
-    {
-        curr = curr->next;
-    }
-
-    if (curr->next != NULL)
-    {
-        return curr->next; // we found it.
-    }
-
-    return NULL;
-}
-
-void deleteIP(ARP_Buf *head, uint32_t ip);
-
-// inserts process at beginning of linked list
-ARP_Buf *insertNewEntry(ARP_Buf *head, uint32_t ip)
+// inserts request to the list at the beginning
+ARP_Buf *insert_ARPBuf_Entry(ARP_Buf *head, uint32_t ip)
 {
     ARP_Buf *new = (ARP_Buf *)malloc(sizeof(ARP_Buf));
-    new->ip = ip;
     new->head.next = NULL;
-
-    ARP_Buf *temp = head->next;
+    new->ip = ip;
+    ARP_Buf *t = head->next;
     head->next = new;
-    new->next = temp;
-
+    new->next = t;
     return new;
 }
 
-void queueWaiting(ARP_Buf *spot, uint8_t *packet, unsigned int len)
+// search ARP request on the basis of ip, if we found it return the buffer node.
+ARP_Buf *entry_exists_in_buf(ARP_Buf *head, uint32_t ip)
 {
-    Wait_List *new = (Wait_List *)malloc(sizeof(Wait_List));
-    new->packet = (uint8_t *)malloc(len);
-    memcpy(new->packet, packet, len);
-    new->len = len;
+    ARP_Buf *temp = head;
+    while (temp->next != NULL && (temp->next)->ip != ip)
+        temp = temp->next;
 
-    Wait_List *temp = spot->head.next;
-    spot->head.next = new;
-    new->next = temp;
+    if (temp->next != NULL)
+        return temp->next;
+    return NULL;
 }
 
-// It is the responsibility of the caller to free the packet after processing.
-uint8_t *extractPacket(ARP_Buf *spot, unsigned int *len)
+// put a packet in wait list queue
+void wait_in_queue(ARP_Buf *entry, uint8_t *packet, unsigned int length)
 {
-    Wait_List *temp = spot->head.next;
-    if (temp == NULL)
-    {
+    Wait_List *new = (Wait_List *)malloc(sizeof(Wait_List));
+    new->packet = (uint8_t *)malloc(length);
+    new->len = length;
+    memcpy(new->packet, packet, length);
+
+    Wait_List *t = entry->head.next;
+    entry->head.next = new;
+    new->next = t;
+}
+
+// remove the packet from wait list queue
+uint8_t *remove_from_queue(ARP_Buf *entry, unsigned int *length)
+{
+    Wait_List *t = entry->head.next;
+    
+    if (t == NULL)
         return NULL;
-    }
-    uint8_t *packet = temp->packet;
-    *len = temp->len;
 
-    spot->head.next = temp->next;
-    free(temp);
-
+    uint8_t *packet = t->packet;
+    *length = t->len;
+    entry->head.next = t->next;
+    free(t);
     return packet;
 }

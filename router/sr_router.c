@@ -264,7 +264,7 @@ void sr_handleip(struct sr_instance *sr,
     ARP_Cache *cache_temp = &arp_head;
     while (cache_temp != NULL)
     {
-        unsigned char *haddr = checkExists(cache_temp, dest_ip);
+        unsigned char *haddr = entry_exists_in_cache(cache_temp, dest_ip);
         if (haddr != NULL)
         {
             --ip_portion->ip_ttl;
@@ -295,13 +295,13 @@ void sr_handleip(struct sr_instance *sr,
     if (cache_temp == NULL)
     {
         // we see if we are still waiting on an ARP request for that IP.
-        ARP_Buf *check_buf = checkExistsBuf(&buf_head, dest_ip);
+        ARP_Buf *check_buf = entry_exists_in_cache(&buf_head, dest_ip);
 
         // if we are not waiting, we send out an ARP request.
         if (check_buf == NULL)
         {
-            check_buf = insertNewEntry(&buf_head, dest_ip);
-            queueWaiting(check_buf, packet, len);
+            check_buf = insert_ARPBuf_Entry(&buf_head, dest_ip);
+            wait_in_queue(check_buf, packet, len);
             if (take_default)
             {
                 send_arpreq(sr, packet, rt_walker->interface, dest_ip);
@@ -314,7 +314,7 @@ void sr_handleip(struct sr_instance *sr,
         }
         else
         {
-            queueWaiting(check_buf, packet, len);
+            wait_in_queue(check_buf, packet, len);
         }
     }
     // TRAVERSE ARP CACHE TABLE FOR IP START **************************
@@ -455,17 +455,17 @@ void sr_handlearp(struct sr_instance *sr,
     else if (arp->ar_op == ntohs(2))
     {
         // otherwise if we have an ARP response, we parse it if we are waiting for a response
-        ARP_Buf *curr = checkExistsBuf(&buf_head, arp->ar_sip);
+        ARP_Buf *curr = entry_exists_in_cache(&buf_head, arp->ar_sip);
 
         // if we got a response but never sent a request, ignore it
         if (curr == NULL)
             return;
 
         // otherwise, we add the info to our ARP cache
-        insertEntry(&arp_head, arp->ar_sip, arp->ar_sha);
+        insert_ARPCache_Entry(&arp_head, arp->ar_sip, arp->ar_sha);
         // print_arp_cache(arp_head);
         unsigned int buf_len = 0;
-        uint8_t *buf_packet = extractPacket(curr, &buf_len);
+        uint8_t *buf_packet = remove_from_queue(curr, &buf_len);
         while (buf_packet != NULL)
         {
             struct ip *ip_portion = (struct ip *)(buf_packet + sizeof(struct sr_ethernet_hdr));
@@ -473,7 +473,7 @@ void sr_handlearp(struct sr_instance *sr,
             sr_handlepacket(sr, buf_packet, buf_len, interface);
 
             free(buf_packet);
-            buf_packet = extractPacket(curr, &buf_len);
+            buf_packet = remove_from_queue(curr, &buf_len);
         }
     }
 }

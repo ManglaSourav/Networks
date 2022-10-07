@@ -67,7 +67,7 @@ void print_arp_cache(ARP_Cache arp_head)
     {
         ip_addr.s_addr = curr->ip;
         printf("IP: %s, MAC address: ", inet_ntoa(ip_addr));
-        DebugMAC(curr->addr);
+        DebugMAC(curr->mac_addr);
         printf("\n");
         curr = curr->next;
     }
