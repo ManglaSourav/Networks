@@ -1,16 +1,17 @@
+#ifndef ICMP_REP
+#define ICMP_REP 0
+#endif
+
+#ifndef ICMP_REQ
+#define ICMP_REQ 8
+#endif
+
 #ifndef Packet_Helper
 #define Packet_Helper
 
-typedef struct ARP_Cache
-{
-    uint32_t ip;
-    unsigned char addr[6];
-    struct ARP_Cache *next;
-} ARP_Cache;
-
 typedef struct Wait_List
 {
-    uint8_t *packet /* lent */;
+    uint8_t *packet;
     unsigned int len;
     struct Wait_List *next;
 } Wait_List;
@@ -22,6 +23,13 @@ typedef struct ARP_Buf
     struct ARP_Buf *next;
 } ARP_Buf;
 
+typedef struct ARP_Cache
+{
+    uint32_t ip;
+    unsigned char addr[6];
+    struct ARP_Cache *next;
+} ARP_Cache;
+
 struct icmp_hdr
 {
     uint8_t type;
@@ -30,25 +38,13 @@ struct icmp_hdr
     uint32_t data;
 } __attribute__((packed));
 
-#ifndef ICMP_REP
-#define ICMP_REP 0
-#endif
-
-#ifndef ICMP_REQ
-#define ICMP_REQ 8
-#endif
-
-void insertEntry(ARP_Cache *head, uint32_t ip, unsigned char *addr);
-unsigned char *checkExists(ARP_Cache *head, uint32_t ip);
-
+void entry_exists_in_cache(ARP_Cache *head, uint32_t ip, unsigned char *addr);
+unsigned char *insert_ARPCache_Entry(ARP_Cache *head, uint32_t ip);
 u_short cksum(u_short *buf, int count);
 uint16_t icmp_cksum(uint16_t *addr, int count);
-
-ARP_Buf *checkExistsBuf(ARP_Buf *head, uint32_t ip);
-void deleteIP(ARP_Buf *head, uint32_t ip);
-ARP_Buf *insertNewEntry(ARP_Buf *head, uint32_t ip);
-
-void queueWaiting(ARP_Buf *spot, uint8_t *packet, unsigned int len);
-uint8_t *extractPacket(ARP_Buf *spot, unsigned int *len);
+ARP_Buf *insert_ARPBuf_Entry(ARP_Buf *head, uint32_t ip);
+ARP_Buf *entry_exists_in_buf(ARP_Buf *head, uint32_t ip);
+void wait_in_queue(ARP_Buf *spot, uint8_t *packet, unsigned int len);
+uint8_t *remove_from_queue(ARP_Buf *spot, unsigned int *len);
 
 #endif

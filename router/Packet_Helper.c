@@ -7,7 +7,7 @@
 #include "Packet_Helper.h"
 
 // inserts ARP entry at beginning of linked list
-void insertEntry(ARP_Cache *head, uint32_t ip, unsigned char *addr)
+void entry_exists_in_cache(ARP_Cache *head, uint32_t ip, unsigned char *addr)
 {
     ARP_Cache *new = (ARP_Cache *)malloc(sizeof(ARP_Cache));
     new->ip = ip;
@@ -19,7 +19,7 @@ void insertEntry(ARP_Cache *head, uint32_t ip, unsigned char *addr)
 }
 
 // returns 1 if exists, 0 if does not. If exists, fill out addr.
-unsigned char *checkExists(ARP_Cache *head, uint32_t ip)
+unsigned char *insert_ARPCache_Entry(ARP_Cache *head, uint32_t ip)
 {
     ARP_Cache *curr = head;
     while (curr->next != NULL && (curr->next)->ip != ip)
@@ -69,7 +69,7 @@ u_short cksum(u_short *buf, int count)
 }
 
 // returns the node if exists, NULL if does not
-ARP_Buf *checkExistsBuf(ARP_Buf *head, uint32_t ip)
+ARP_Buf *entry_exists_in_buf(ARP_Buf *head, uint32_t ip)
 {
     ARP_Buf *curr = head;
     while (curr->next != NULL && (curr->next)->ip != ip)
@@ -85,10 +85,8 @@ ARP_Buf *checkExistsBuf(ARP_Buf *head, uint32_t ip)
     return NULL;
 }
 
-void deleteIP(ARP_Buf *head, uint32_t ip);
-
 // inserts process at beginning of linked list
-ARP_Buf *insertNewEntry(ARP_Buf *head, uint32_t ip)
+ARP_Buf *insert_ARPBuf_Entry(ARP_Buf *head, uint32_t ip)
 {
     ARP_Buf *new = (ARP_Buf *)malloc(sizeof(ARP_Buf));
     new->ip = ip;
@@ -101,8 +99,7 @@ ARP_Buf *insertNewEntry(ARP_Buf *head, uint32_t ip)
     return new;
 }
 
-
-void queueWaiting(ARP_Buf *spot, uint8_t *packet, unsigned int len)
+void wait_in_queue(ARP_Buf *spot, uint8_t *packet, unsigned int len)
 {
     Wait_List *new = (Wait_List *)malloc(sizeof(Wait_List));
     new->packet = (uint8_t *)malloc(len);
@@ -115,7 +112,7 @@ void queueWaiting(ARP_Buf *spot, uint8_t *packet, unsigned int len)
 }
 
 // It is the responsibility of the caller to free the packet after processing.
-uint8_t *extractPacket(ARP_Buf *spot, unsigned int *len)
+uint8_t *remove_from_queue(ARP_Buf *spot, unsigned int *len)
 {
     Wait_List *temp = spot->head.next;
     if (temp == NULL)

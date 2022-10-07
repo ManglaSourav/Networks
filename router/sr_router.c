@@ -140,7 +140,7 @@ void sr_handle_ip_pack(struct sr_instance *sr,
     ARP_Cache *cache_t = &arp_head;
     while (cache_t != NULL)
     {
-        unsigned char *mac_addr = checkExists(cache_t, ip_dest);
+        unsigned char *mac_addr = insert_ARPCache_Entry(cache_t, ip_dest);
         if (mac_addr != NULL)
         {
             --ip_part->ip_ttl; // decrement the ttl by 1
@@ -154,27 +154,27 @@ void sr_handle_ip_pack(struct sr_instance *sr,
             struct sr_if *if_info = sr_get_interface(sr, route_handler->interface);
             memcpy(eth_hdr->ether_shost, if_info->addr, sizeof(eth_hdr->ether_shost));
             memcpy(eth_hdr->ether_dhost, mac_addr, sizeof(eth_hdr->ether_dhost));
-            int rc = sr_send_packet(sr, packet, len, route_handler->interface); // send the packet
+            sr_send_packet(sr, packet, len, route_handler->interface); // send the packet
             return;
         }
         cache_t = cache_t->next;
     }
 
-    if (cache_t == NULL) // if no ARP cache entry exists
+    if (cache_t == NULL)
     {
 
-        ARP_Buf *buffer = checkExistsBuf(&buf_head, ip_dest);
+        ARP_Buf *buffer = entry_exists_in_buf(&buf_head, ip_dest);
         if (buffer == NULL)
         {
-            buffer = insertNewEntry(&buf_head, ip_dest);
-            queueWaiting(buffer, packet, len);
+            buffer = insert_ARPBuf_Entry(&buf_head, ip_dest);
+            wait_in_queue(buffer, packet, len);
             if (flag_def)
                 send_arp_req(sr, packet, route_handler->interface, ip_dest);
             else
                 send_arp_req(sr, packet, route_handler->interface, 0);
         }
         else
-            queueWaiting(buffer, packet, len);
+            wait_in_queue(buffer, packet, len);
     }
 }
 
@@ -224,7 +224,7 @@ void send_arp_req(struct sr_instance *sr,
         arp->ar_tip = dest_ip;
 
     memset(arp->ar_tha, 0, sizeof(arp->ar_tha));
-    int rc = sr_send_packet(sr, temp_packet, size_temp, interface);
+    sr_send_packet(sr, temp_packet, size_temp, interface);
 }
 
 /*---------------------------------------------------------------------
@@ -241,73 +241,50 @@ void sr_handle_arp_pack(struct sr_instance *sr,
                         char *interface)
 {
     struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
-    struct sr_arphdr *arp = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr));
+    struct sr_arphdr *arp_hdr = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr));
 
-    // if we have an ARP request,
-    if (arp->ar_op == ntohs(1))
+    if (arp_hdr->ar_op == ntohs(1))
     {
-        // we attempt to find the interface
-        struct sr_if *if_walker = 0;
+        struct sr_if *if_handler = 0;
         if (sr->if_list == 0)
         {
-            printf(" Interface list empty \n");
+            printf("No Interfacesf ound \n");
             return;
         }
-        if_walker = sr->if_list;
-        while (if_walker != NULL)
+        if_handler = sr->if_list;
+        while (if_handler != NULL)
         {
-            struct in_addr ip_addr, ip_addr1;
-            ip_addr.s_addr = arp->ar_tip;
-            ip_addr1.s_addr = if_walker->ip;
-
-            // if we find the interface,
-            if (if_walker->ip == arp->ar_tip)
+            if (if_handler->ip == arp_hdr->ar_tip)
             {
-                arp->ar_op = ntohs(2);
-                memcpy(arp->ar_tha, arp->ar_sha, sizeof(arp->ar_tha));
-                memcpy(arp->ar_sha, if_walker->addr, sizeof(arp->ar_sha));
-                uint32_t temp = arp->ar_tip;
-                arp->ar_tip = arp->ar_sip;
-                arp->ar_sip = temp;
-
+                arp_hdr->ar_op = ntohs(2);
+                memcpy(arp_hdr->ar_tha, arp_hdr->ar_sha, sizeof(arp_hdr->ar_tha));
+                memcpy(arp_hdr->ar_sha, if_handler->addr, sizeof(arp_hdr->ar_sha));
+                uint32_t t = arp_hdr->ar_tip;
+                arp_hdr->ar_tip = arp_hdr->ar_sip;
+                arp_hdr->ar_sip = t;
                 memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, sizeof(eth_hdr->ether_dhost));
-                memcpy(eth_hdr->ether_shost, arp->ar_sha, sizeof(arp->ar_sha));
-
+                memcpy(eth_hdr->ether_shost, arp_hdr->ar_sha, sizeof(arp_hdr->ar_sha));
                 int rc = sr_send_packet(sr, packet, len, interface);
-                assert(rc == 0);
                 break;
             }
-            if_walker = if_walker->next;
+            if_handler = if_handler->next;
         }
-
-        // this should never happen
-        if (if_walker->next == NULL)
-        {
-            printf("we have reached the end of the road");
-        }
+        if (if_handler->next == NULL)
+            printf("Found Error");
     }
-    else if (arp->ar_op == ntohs(2))
+    else if (arp_hdr->ar_op == ntohs(2))
     {
-        // otherwise if we have an ARP response, we parse it if we are waiting for a response
-        ARP_Buf *curr = checkExistsBuf(&buf_head, arp->ar_sip);
-
-        // if we got a response but never sent a request, ignore it
+        ARP_Buf *curr = entry_exists_in_buf(&buf_head, arp_hdr->ar_sip);
         if (curr == NULL)
             return;
-
-        // otherwise, we add the info to our ARP cache
-        insertEntry(&arp_head, arp->ar_sip, arp->ar_sha);
-        // print_arp_cache(arp_head);
-        unsigned int buf_len = 0;
-        uint8_t *buf_packet = extractPacket(curr, &buf_len);
+        entry_exists_in_cache(&arp_head, arp_hdr->ar_sip, arp_hdr->ar_sha);
+        unsigned int buf_length = 0;
+        uint8_t *buf_packet = remove_from_queue(curr, &buf_length);
         while (buf_packet != NULL)
         {
-            struct ip *ip_part = (struct ip *)(buf_packet + sizeof(struct sr_ethernet_hdr));
-
-            sr_handlepacket(sr, buf_packet, buf_len, interface);
-
+            sr_handlepacket(sr, buf_packet, buf_length, interface);
             free(buf_packet);
-            buf_packet = extractPacket(curr, &buf_len);
+            buf_packet = remove_from_queue(curr, &buf_length);
         }
     }
 }
@@ -321,12 +298,11 @@ void sr_handle_arp_pack(struct sr_instance *sr,
  *---------------------------------------------------------------------*/
 void sr_init(struct sr_instance *sr)
 {
-    /* REQUIRES */
     assert(sr);
 
     arp_head.next = NULL;
     buf_head.next = NULL;
-} /* -- sr_init -- */
+}
 
 /*---------------------------------------------------------------------
  * Method: sr_handlepacket(struct sr_instance* sr,
@@ -353,15 +329,10 @@ void sr_handlepacket(struct sr_instance *sr,
     assert(sr);
     assert(packet);
     assert(interface);
-
     struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
-    auto type = htons(eth->ether_type);
-    if (type == ETHERTYPE_ARP)
-    {
-        sr_handle_arp_pack(sr, packet, len, interface);
-    }
-    else if (type == ETHERTYPE_IP)
-    {
+    int type = htons(eth->ether_type);
+    if (type == ETHERTYPE_IP)
         sr_handle_ip_pack(sr, packet, len, interface);
-    }
+    else if (type == ETHERTYPE_ARP)
+        sr_handle_arp_pack(sr, packet, len, interface);
 }
