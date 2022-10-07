@@ -44,7 +44,7 @@ u_short cksum(u_short *buf, int count);
 uint16_t icmp_cksum(uint16_t *addr, int count);
 ARP_Buf *insert_ARPBuf_Entry(ARP_Buf *head, uint32_t ip);
 ARP_Buf *entry_exists_in_buf(ARP_Buf *head, uint32_t ip);
-void wait_in_queue(ARP_Buf *spot, uint8_t *packet, unsigned int len);
-uint8_t *remove_from_queue(ARP_Buf *spot, unsigned int *len);
+void wait_in_queue(ARP_Buf *entry, uint8_t *packet, unsigned int length);
+uint8_t *remove_from_queue(ARP_Buf *entry, unsigned int *len);
 
 #endif

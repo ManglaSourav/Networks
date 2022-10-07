@@ -6,40 +6,32 @@
 #include "sr_router.h"
 #include "Packet_Helper.h"
 
-// inserts ARP entry at beginning of linked list
+// insert new cache entry
 void entry_exists_in_cache(ARP_Cache *head, uint32_t ip, unsigned char *addr)
 {
-    ARP_Cache *new = (ARP_Cache *)malloc(sizeof(ARP_Cache));
-    new->ip = ip;
-    memcpy(new->addr, addr, sizeof(new->addr));
-
-    ARP_Cache *temp = head->next;
-    head->next = new;
-    new->next = temp;
+    ARP_Cache *temp = (ARP_Cache *)malloc(sizeof(ARP_Cache));
+    temp->ip = ip;
+    memcpy(temp->addr, addr, sizeof(temp->addr));
+    ARP_Cache *t = head->next;
+    head->next = temp;
+    temp->next = t;
 }
 
-// returns 1 if exists, 0 if does not. If exists, fill out addr.
+// check entry present in the cache or not
 unsigned char *insert_ARPCache_Entry(ARP_Cache *head, uint32_t ip)
 {
-    ARP_Cache *curr = head;
-    while (curr->next != NULL && (curr->next)->ip != ip)
-    {
-        curr = curr->next;
-    }
-
-    if (curr->next != NULL)
-    {
-        // DebugMAC("%d ", curr->next->ip);
-        return curr->next->addr; // we found it.
-    }
-
+    ARP_Cache *temp = head;
+    while (temp->next != NULL && (temp->next)->ip != ip)
+        temp = temp->next;
+    if (temp->next != NULL)
+        return temp->next->addr;
     return NULL;
 }
 
+// icmp checksum
 uint16_t icmp_cksum(uint16_t *addr, int count)
 {
     register uint32_t sum = 0;
-
     while (count > 1)
     {
         sum += *addr++;
@@ -52,10 +44,10 @@ uint16_t icmp_cksum(uint16_t *addr, int count)
     return (~sum);
 }
 
+// simple checksum from handout
 u_short cksum(u_short *buf, int count)
 {
     register u_long sum = 0;
-
     while (count--)
     {
         sum += *buf++;
@@ -68,62 +60,51 @@ u_short cksum(u_short *buf, int count)
     return ~(sum & 0xFFFF);
 }
 
-// returns the node if exists, NULL if does not
+// check entry is present in the buffer or not
 ARP_Buf *entry_exists_in_buf(ARP_Buf *head, uint32_t ip)
 {
-    ARP_Buf *curr = head;
-    while (curr->next != NULL && (curr->next)->ip != ip)
-    {
-        curr = curr->next;
-    }
-
-    if (curr->next != NULL)
-    {
-        return curr->next; // we found it.
-    }
-
+    ARP_Buf *temp = head;
+    while (temp->next != NULL && (temp->next)->ip != ip)
+        temp = temp->next;
+    if (temp->next != NULL)
+        return temp->next;
     return NULL;
 }
 
-// inserts process at beginning of linked list
+// insert new entry to buffer
 ARP_Buf *insert_ARPBuf_Entry(ARP_Buf *head, uint32_t ip)
 {
-    ARP_Buf *new = (ARP_Buf *)malloc(sizeof(ARP_Buf));
-    new->ip = ip;
-    new->head.next = NULL;
-
-    ARP_Buf *temp = head->next;
-    head->next = new;
-    new->next = temp;
-
-    return new;
+    ARP_Buf *temp = (ARP_Buf *)malloc(sizeof(ARP_Buf));
+    temp->ip = ip;
+    temp->head.next = NULL;
+    ARP_Buf *t = head->next;
+    head->next = temp;
+    temp->next = t;
+    return temp;
 }
 
-void wait_in_queue(ARP_Buf *spot, uint8_t *packet, unsigned int len)
+// put incoming packet in queue
+void wait_in_queue(ARP_Buf *entry, uint8_t *packet, unsigned int length)
 {
-    Wait_List *new = (Wait_List *)malloc(sizeof(Wait_List));
-    new->packet = (uint8_t *)malloc(len);
-    memcpy(new->packet, packet, len);
-    new->len = len;
+    Wait_List *temp = (Wait_List *)malloc(sizeof(Wait_List));
+    temp->packet = (uint8_t *)malloc(length);
+    memcpy(temp->packet, packet, length);
+    temp->len = length;
 
-    Wait_List *temp = spot->head.next;
-    spot->head.next = new;
-    new->next = temp;
+    Wait_List *t = entry->head.next;
+    entry->head.next = temp;
+    temp->next = t;
 }
 
-// It is the responsibility of the caller to free the packet after processing.
-uint8_t *remove_from_queue(ARP_Buf *spot, unsigned int *len)
+// remove packet from queue
+uint8_t *remove_from_queue(ARP_Buf *entry, unsigned int *len)
 {
-    Wait_List *temp = spot->head.next;
+    Wait_List *temp = entry->head.next;
     if (temp == NULL)
-    {
         return NULL;
-    }
     uint8_t *packet = temp->packet;
     *len = temp->len;
-
-    spot->head.next = temp->next;
+    entry->head.next = temp->next;
     free(temp);
-
     return packet;
 }

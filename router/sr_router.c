@@ -264,7 +264,7 @@ void sr_handle_arp_pack(struct sr_instance *sr,
                 arp_hdr->ar_sip = t;
                 memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, sizeof(eth_hdr->ether_dhost));
                 memcpy(eth_hdr->ether_shost, arp_hdr->ar_sha, sizeof(arp_hdr->ar_sha));
-                int rc = sr_send_packet(sr, packet, len, interface);
+                sr_send_packet(sr, packet, len, interface);
                 break;
             }
             if_handler = if_handler->next;
