@@ -27,160 +27,58 @@
 #include "ARP_Helper.h"
 #include "router_helper.h"
 
-void sr_handleip(struct sr_instance *sr,
-                 uint8_t *packet,
-                 unsigned int len,
-                 char *interface);
-void sr_handlearp(struct sr_instance *sr,
-                  uint8_t *packet,
-                  unsigned int len,
-                  char *interface);
-void send_arpreq(struct sr_instance *sr,
-                 uint8_t *orig_packet,
-                 char *interface,
-                 uint32_t dest_ip);
-void handle_icmp(struct sr_instance *sr,
-                 uint8_t *packet,
-                 unsigned int len,
-                 char *interface);
-
+// List header to maintain cache and buffer
 ARP_Cache arp_head;
 ARP_Buf buf_head;
 
 /*---------------------------------------------------------------------
- * Method: sr_init(struct sr_instance* sr)
- * Scope:  Global
- *
- * Initialize ARP cache and buffer used for packets waiting on ARP
- * responses.
- *---------------------------------------------------------------------*/
-void sr_init(struct sr_instance *sr)
-{
-    /* REQUIRES */
-    assert(sr);
-
-    arp_head.next = NULL;
-    buf_head.next = NULL;
-} /* -- sr_init -- */
-
-/*---------------------------------------------------------------------
- * Method: sr_handlepacket(struct sr_instance* sr,
- *                         uint8_t * packet,
- *                         unsigned int len,
- *                         char* interface)
- * Scope:  Global
- *
- * This method is called each time the router receives a packet on the
- * interface. The packet buffer, the packet length and the receiving
- * interface are passed in as parameters. The packet is complete with
- * ethernet headers.
- *
- * Note: Both the packet buffer and the character's memory are handled
- * by sr_vns_comm.c that means do NOT delete either.  Make a copy of the
- * packet instead if you intend to keep it around beyond the scope of
- * the method call.
- *---------------------------------------------------------------------*/
-void sr_handlepacket(struct sr_instance *sr,
-                     uint8_t *packet /* lent */,
-                     unsigned int len,
-                     char *interface /* lent */)
-{
-    assert(sr);
-    assert(packet);
-    assert(interface);
-
-    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
-
-    auto type = htons(eth->ether_type);
-    // printf("here");
-    // DebugMAC(eth->ether_shost);
-    // 9a:4a:14:78:a0:1f
-    // 9a:4a:14:78:a0:1f
-    // 9a:4a:14:78:a0:1f
-    // return;
-    // (struct ether_addr *)
-    // printf("%s", ether_ntoa(eth->ether_shost));
-    // printk(KERN_INFO "hdr->h_dest 0x%x\n", eth->ether_dhost);
-
-    // printf("\nsrc %d", eth->ether_shost); // 3480110662:1c:f9:61:99:2db2:a7:7f:a1:17:dd52:26:3c:b5:cc:2e
-    // printf("\ndest %d", eth->ether_dhost);
-    // printf("\nsrc %X", eth->ether_shost);
-    // printf("\ndest %X", eth->ether_dhost);
-    // printf("\ndest %s", eth->ether_dhost);
-
-    // printf("\nHere %X", eth);
-    // printf("\n packet id %d", type);
-    // printf("\n packet id hex %X", type);
-
-    if (type == ETHERTYPE_ARP)
-    {
-        sr_handlearp(sr, packet, len, interface);
-    }
-    else if (type == ETHERTYPE_IP)
-    {
-        sr_handleip(sr, packet, len, interface);
-    }
-} /* end sr_ForwardPacket */
-
-/*---------------------------------------------------------------------
- * Method: handle_icmp(struct sr_instance* sr,
+ * Method: handle_icmp_pack(struct sr_instance* sr,
  *                     uint8_t * packet,
  *                     unsigned int len,
  *                     char* interface)
  *
- *This method is called when the packet received is addressed to the
- *router at the IP layer. It first checks to see whether or not the
- *packet is a an ICMP request; if so, it verifies the packet with
- *the checksum. Then, we modify the packet to be sent from the router
- *back to the originator as a reply. If at any point a condition is
- *not met, we drop the packet.
+ *When the packet arrives at the IP layer, this function is invoked.
+ *The packet is initially examined to see whether it is an ICMP request;
+ *if so, the checksum is used to confirm the validity of the packet.
+ *The packet that the router will then change and send back to the sender
+ *as a response is then modified. We discard the packet at any place
+ *where a requirement is not satisfied.
  *---------------------------------------------------------------------*/
-void handle_icmp(struct sr_instance *sr,
-                 uint8_t *packet,
-                 unsigned int len,
-                 char *interface)
+void handle_icmp_pack(struct sr_instance *sr,
+                      uint8_t *packet,
+                      unsigned int len,
+                      char *interface)
 {
-    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
-    struct ip *ip = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
-
-    // if protocol is not ICMP, we ignore it
+    // TODO:
+    // struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
+    struct ip *ip = (struct ip *)(sizeof(struct sr_ethernet_hdr) + packet);
+    // drop the packet if not ICMP packet
     if (ip->ip_p != IPPROTO_ICMP)
         return;
 
-    struct icmp_hdr *icmp = (struct icmp_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
-
-    // if not an ICMP request, ignore it.
-    if (icmp->type != ICMP_TYPE_REQ || icmp->code != 0)
+    struct icmp_hdr *icmp_h = (struct icmp_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
+    if (icmp_h->type != ICMP_REQ || icmp_h->code != 0)
         return;
-
-    uint16_t prev_checksum = icmp->checksum;
-    icmp->checksum = 0; // have to zero the checksum before recalculating
-    icmp->checksum = icmp_checksum((uint16_t *)icmp, len - sizeof(struct sr_ethernet_hdr) - sizeof(struct ip));
-
-    // if checksum for icmp request is incorrect, ignore
-    if (prev_checksum != icmp->checksum)
+    uint16_t pack_checksum = icmp_h->checksum;
+    icmp_h->checksum = 0;
+    icmp_h->checksum = icmp_cksum((uint16_t *)icmp_h, len - sizeof(struct sr_ethernet_hdr) - sizeof(struct ip)); // new checksum
+    if (pack_checksum != icmp_h->checksum)
     {
-        printf("Failed checksum, %d vs %d\n", prev_checksum, icmp->checksum);
+        printf("Checksum do not match , %d vs %d\n", pack_checksum, icmp_h->checksum);
         return;
     }
-
-    // otherwise, swap the source and destination in IP header
-    uint32_t temp = ip->ip_src.s_addr;
+    uint32_t t = ip->ip_src.s_addr; // Otherwise, change the IP header's source and destination
     ip->ip_src.s_addr = ip->ip_dst.s_addr;
-    ip->ip_dst.s_addr = temp;
-    // modify the packet to be a reply,
-    icmp->type = ICMP_TYPE_REP;
+    ip->ip_dst.s_addr = t;
 
-    // recalculate the checksum,
-    icmp->checksum = 0;
-    icmp->checksum = icmp_checksum((uint16_t *)icmp, len - sizeof(struct sr_ethernet_hdr) - sizeof(struct ip));
-
-    // and then finally send out the packet.
-    sr_handlepacket(sr, packet, len, interface);
+    icmp_h->checksum = 0;
+    icmp_h->checksum = icmp_cksum((uint16_t *)icmp_h, len - sizeof(struct sr_ethernet_hdr) - sizeof(struct ip));
+    icmp_h->type = ICMP_REP;                     // make type to ICP reply
+    sr_handlepacket(sr, packet, len, interface); // in last, send out the packet.
 }
 
 /*---------------------------------------------------------------------
- * Method: sr_handleip(struct sr_instance* sr,
+ * Method: sr_handle_ip_pack(struct sr_instance* sr,
  *                     uint8_t * packet,
  *                     unsigned int len,
  *                     char* interface)
@@ -188,10 +86,10 @@ void handle_icmp(struct sr_instance *sr,
  *This method is called when the packet received by the router is
  *identified to have a type of IP.
  *---------------------------------------------------------------------*/
-void sr_handleip(struct sr_instance *sr,
-                 uint8_t *packet,
-                 unsigned int len,
-                 char *interface)
+void sr_handle_ip_pack(struct sr_instance *sr,
+                       uint8_t *packet,
+                       unsigned int len,
+                       char *interface)
 {
     struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
     struct ip *ip_portion = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
@@ -218,7 +116,7 @@ void sr_handleip(struct sr_instance *sr,
         DebugMAC(if_walker->addr);
         if (if_walker->ip == dest_ip)
         {
-            handle_icmp(sr, packet, len, interface);
+            handle_icmp_pack(sr, packet, len, interface);
             return;
         }
         if_walker = if_walker->next;
@@ -304,11 +202,11 @@ void sr_handleip(struct sr_instance *sr,
             queueWaiting(check_buf, packet, len);
             if (take_default)
             {
-                send_arpreq(sr, packet, rt_walker->interface, dest_ip);
+                send_arp_req(sr, packet, rt_walker->interface, dest_ip);
             }
             else
             {
-                send_arpreq(sr, packet, rt_walker->interface, 0);
+                send_arp_req(sr, packet, rt_walker->interface, 0);
             }
             // otherwise, we queue the packet to wait for that ARP response.
         }
@@ -321,7 +219,7 @@ void sr_handleip(struct sr_instance *sr,
 }
 
 /*---------------------------------------------------------------------
- * Method: send_arpreq(struct sr_instance* sr,
+ * Method: send_arp_req(struct sr_instance* sr,
  *                     uint8_t * orig_packet,
  *                     char* interface)
  *
@@ -334,10 +232,10 @@ void sr_handleip(struct sr_instance *sr,
  *where the IPs do not match with any of the interfaces aka the default
  *route is selected, the dest_ip is set to the IP of the gateway.
  *---------------------------------------------------------------------*/
-void send_arpreq(struct sr_instance *sr,
-                 uint8_t *orig_packet,
-                 char *interface,
-                 uint32_t dest_ip)
+void send_arp_req(struct sr_instance *sr,
+                  uint8_t *orig_packet,
+                  char *interface,
+                  uint32_t dest_ip)
 {
     uint8_t packet[sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr)];
     memset(&packet, 0, sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr));
@@ -391,7 +289,7 @@ void send_arpreq(struct sr_instance *sr,
 }
 
 /*---------------------------------------------------------------------
- * Method: void sr_handlearp(struct sr_instance* sr,
+ * Method: void sr_handle_arp_pack(struct sr_instance* sr,
  *                           uint8_t * packet,
  *                           unsigned int len,
  *                           char* interface)
@@ -401,10 +299,10 @@ void send_arpreq(struct sr_instance *sr,
  *It also deals with ARP replies by sending all packets delayed
  *because we were waiting for an ARP response.
  *---------------------------------------------------------------------*/
-void sr_handlearp(struct sr_instance *sr,
-                  uint8_t *packet,
-                  unsigned int len,
-                  char *interface)
+void sr_handle_arp_pack(struct sr_instance *sr,
+                        uint8_t *packet,
+                        unsigned int len,
+                        char *interface)
 {
     struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
     struct sr_arphdr *arp = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr));
@@ -475,5 +373,59 @@ void sr_handlearp(struct sr_instance *sr,
             free(buf_packet);
             buf_packet = extractPacket(curr, &buf_len);
         }
+    }
+}
+
+/*---------------------------------------------------------------------
+ * Method: sr_init(struct sr_instance* sr)
+ * Scope:  Global
+ *
+ * Initialize ARP cache and buffer used for packets waiting on ARP
+ * responses.
+ *---------------------------------------------------------------------*/
+void sr_init(struct sr_instance *sr)
+{
+    /* REQUIRES */
+    assert(sr);
+
+    arp_head.next = NULL;
+    buf_head.next = NULL;
+} /* -- sr_init -- */
+
+/*---------------------------------------------------------------------
+ * Method: sr_handlepacket(struct sr_instance* sr,
+ *                         uint8_t * packet,
+ *                         unsigned int len,
+ *                         char* interface)
+ * Scope:  Global
+ *
+ * This method is called each time the router receives a packet on the
+ * interface. The packet buffer, the packet length and the receiving
+ * interface are passed in as parameters. The packet is complete with
+ * ethernet headers.
+ *
+ * Note: Both the packet buffer and the character's memory are handled
+ * by sr_vns_comm.c that means do NOT delete either.  Make a copy of the
+ * packet instead if you intend to keep it around beyond the scope of
+ * the method call.
+ *---------------------------------------------------------------------*/
+void sr_handlepacket(struct sr_instance *sr,
+                     uint8_t *packet /* lent */,
+                     unsigned int len,
+                     char *interface /* lent */)
+{
+    assert(sr);
+    assert(packet);
+    assert(interface);
+
+    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
+    auto type = htons(eth->ether_type);
+    if (type == ETHERTYPE_ARP)
+    {
+        sr_handle_arp_pack(sr, packet, len, interface);
+    }
+    else if (type == ETHERTYPE_IP)
+    {
+        sr_handle_ip_pack(sr, packet, len, interface);
     }
 }
