@@ -101,6 +101,7 @@ ARP_Buf *insertNewEntry(ARP_Buf *head, uint32_t ip)
     return new;
 }
 
+
 void queueWaiting(ARP_Buf *spot, uint8_t *packet, unsigned int len)
 {
     Wait_List *new = (Wait_List *)malloc(sizeof(Wait_List));

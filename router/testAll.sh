@@ -3,40 +3,40 @@ b=6
 echo " Continuously  Downloading File from server 1"
 for i in {1..6}
 do 
-  wget http://172.29.10.33:16280
+  wget http://172.29.9.65:16280
   sleep 0.5
 done
 echo " Continuously  Downloading File from server 2"
 for j in {1..6}
 do	
-  wget http://172.29.10.34:16280
+  wget http://172.29.9.66:16280
   echo "Done $j"
   sleep 0.5
 done
 echo "Downloading from server 3"
 for k in {1..6}
 do
-	  wget http://172.29.10.51:16280
+	  wget http://172.29.9.83:16280
 	  echo "Done $k"
 	  sleep 0.5
 done
 echo"Downloading fro server 4"
 for l in {1..6}
 do
-	          wget http://172.29.10.52:16280
+	          wget http://172.29.9.84:16280
 		  echo "Done $l"
 	          sleep 0.5
 done
 echo"Downloading from all servers 6 times"
 for m in {1..6}
 do
-	wget http://172.29.10.33:16280
+	wget http://172.29.9.65:16280
 	sleep 0.5
-	wget http://172.29.10.34:16280
+	wget http://172.29.9.66:16280
 	sleep 0.5
-	wget http://172.29.10.51:16280
+	wget http://172.29.9.83:16280
 	sleep 0.5
-	wget http://172.29.10.52:16280
+	wget http://172.29.9.84:16280
 	sleep 0.5
 done
 if [ $i == $b ]
