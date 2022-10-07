@@ -24,8 +24,7 @@
 #include "sr_rt.h"
 #include "sr_router.h"
 #include "sr_protocol.h"
-#include "ARP_Helper.h"
-#include "router_helper.h"
+#include "Packet_Helper.h"
 
 // List header to maintain cache and buffer
 ARP_Cache arp_head;
@@ -49,11 +48,8 @@ void handle_icmp_pack(struct sr_instance *sr,
                       unsigned int len,
                       char *interface)
 {
-    // TODO:
-    // struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
     struct ip *ip = (struct ip *)(sizeof(struct sr_ethernet_hdr) + packet);
-    // drop the packet if not ICMP packet
-    if (ip->ip_p != IPPROTO_ICMP)
+    if (ip->ip_p != IPPROTO_ICMP) // drop the packet if not ICMP packet
         return;
 
     struct icmp_hdr *icmp_h = (struct icmp_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
@@ -83,26 +79,24 @@ void handle_icmp_pack(struct sr_instance *sr,
  *                     unsigned int len,
  *                     char* interface)
  *
- *This method is called when the packet received by the router is
- *identified to have a type of IP.
+ *Processing IP packet
  *---------------------------------------------------------------------*/
 void sr_handle_ip_pack(struct sr_instance *sr,
                        uint8_t *packet,
                        unsigned int len,
                        char *interface)
 {
-    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
-    struct ip *ip_portion = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
-    uint32_t dest_ip = ip_portion->ip_dst.s_addr;
-    char take_default = 0;
+    struct ip *ip_part = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
+    uint32_t ip_dest = ip_part->ip_dst.s_addr;
+    struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
+    char flag_def = 0;
 
-    // PERFORMING CHECKS START **************************************
-    if (ip_portion->ip_v != 4)
+    if (ip_part->ip_v != 4)
         return;
-    u_short test = cksum((void *)ip_portion, ip_portion->ip_hl * 4 / 2);
-    if (test != 0)
+    u_short temp = cksum((void *)ip_part, ip_part->ip_hl * 2);
+    if (temp != 0)
         return;
-    if (ip_portion->ip_ttl == 1)
+    if (ip_part->ip_ttl == 1)
         return;
     // PERFORMING CHECKS END ****************************************
 
@@ -114,7 +108,7 @@ void sr_handle_ip_pack(struct sr_instance *sr,
     while (if_walker)
     {
         DebugMAC(if_walker->addr);
-        if (if_walker->ip == dest_ip)
+        if (if_walker->ip == ip_dest)
         {
             handle_icmp_pack(sr, packet, len, interface);
             return;
@@ -142,7 +136,7 @@ void sr_handle_ip_pack(struct sr_instance *sr,
         {
             default_route = rt_walker;
         }
-        else if ((dest_ip & rt_walker->mask.s_addr) == (rt_walker->dest.s_addr & rt_walker->mask.s_addr))
+        else if ((ip_dest & rt_walker->mask.s_addr) == (rt_walker->dest.s_addr & rt_walker->mask.s_addr))
         {
             break;
         }
@@ -153,8 +147,8 @@ void sr_handle_ip_pack(struct sr_instance *sr,
     {
         rt_walker = default_route;
         // we look to send to the gateway instead
-        dest_ip = rt_walker->gw.s_addr;
-        take_default = 1;
+        ip_dest = rt_walker->gw.s_addr;
+        flag_def = 1;
     }
     // TRAVERSE ROUTING TABLE FOR IP END ****************************
 
@@ -162,24 +156,24 @@ void sr_handle_ip_pack(struct sr_instance *sr,
     ARP_Cache *cache_temp = &arp_head;
     while (cache_temp != NULL)
     {
-        unsigned char *haddr = checkExists(cache_temp, dest_ip);
+        unsigned char *haddr = checkExists(cache_temp, ip_dest);
         if (haddr != NULL)
         {
-            --ip_portion->ip_ttl;
+            --ip_part->ip_ttl;
 
-            ip_portion->ip_sum = 0;
-            test = cksum((void *)ip_portion, ip_portion->ip_hl * 4 / 2);
-            ip_portion->ip_sum = test;
+            ip_part->ip_sum = 0;
+            temp = cksum((void *)ip_part, ip_part->ip_hl * 4 / 2);
+            ip_part->ip_sum = temp;
 
             // not necessary to check again, but just in case
-            test = cksum((void *)ip_portion, ip_portion->ip_hl * 4 / 2);
-            if (test != 0)
+            temp = cksum((void *)ip_part, ip_part->ip_hl * 4 / 2);
+            if (temp != 0)
                 return;
 
             // modify the ethernet header,
             struct sr_if *interface_info = sr_get_interface(sr, rt_walker->interface);
-            memcpy(eth->ether_shost, interface_info->addr, sizeof(eth->ether_shost));
-            memcpy(eth->ether_dhost, haddr, sizeof(eth->ether_dhost));
+            memcpy(eth_hdr->ether_shost, interface_info->addr, sizeof(eth_hdr->ether_shost));
+            memcpy(eth_hdr->ether_dhost, haddr, sizeof(eth_hdr->ether_dhost));
 
             // then send off the packet.
             int rc = sr_send_packet(sr, packet, len, rt_walker->interface);
@@ -193,16 +187,16 @@ void sr_handle_ip_pack(struct sr_instance *sr,
     if (cache_temp == NULL)
     {
         // we see if we are still waiting on an ARP request for that IP.
-        ARP_Buf *check_buf = checkExistsBuf(&buf_head, dest_ip);
+        ARP_Buf *check_buf = checkExistsBuf(&buf_head, ip_dest);
 
         // if we are not waiting, we send out an ARP request.
         if (check_buf == NULL)
         {
-            check_buf = insertNewEntry(&buf_head, dest_ip);
+            check_buf = insertNewEntry(&buf_head, ip_dest);
             queueWaiting(check_buf, packet, len);
-            if (take_default)
+            if (flag_def)
             {
-                send_arp_req(sr, packet, rt_walker->interface, dest_ip);
+                send_arp_req(sr, packet, rt_walker->interface, ip_dest);
             }
             else
             {
@@ -366,7 +360,7 @@ void sr_handle_arp_pack(struct sr_instance *sr,
         uint8_t *buf_packet = extractPacket(curr, &buf_len);
         while (buf_packet != NULL)
         {
-            struct ip *ip_portion = (struct ip *)(buf_packet + sizeof(struct sr_ethernet_hdr));
+            struct ip *ip_part = (struct ip *)(buf_packet + sizeof(struct sr_ethernet_hdr));
 
             sr_handlepacket(sr, buf_packet, buf_len, interface);
 

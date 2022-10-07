@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "sr_router.h"
-#include "ARP_Helper.h"
+#include "Packet_Helper.h"
 
 // inserts ARP entry at beginning of linked list
 void insertEntry(ARP_Cache *head, uint32_t ip, unsigned char *addr)
@@ -34,6 +34,38 @@ unsigned char *checkExists(ARP_Cache *head, uint32_t ip)
     }
 
     return NULL;
+}
+
+uint16_t icmp_cksum(uint16_t *addr, int count)
+{
+    register uint32_t sum = 0;
+
+    while (count > 1)
+    {
+        sum += *addr++;
+        count -= 2;
+    }
+    if (count > 0)
+        sum += *((uint8_t *)addr);
+    while (sum >> 16)
+        sum = (sum & 0xffff) + (sum >> 16);
+    return (~sum);
+}
+
+u_short cksum(u_short *buf, int count)
+{
+    register u_long sum = 0;
+
+    while (count--)
+    {
+        sum += *buf++;
+        if (sum & 0xFFFF0000)
+        {
+            sum &= 0xFFFF;
+            sum++;
+        }
+    }
+    return ~(sum & 0xFFFF);
 }
 
 // returns the node if exists, NULL if does not

@@ -1,5 +1,5 @@
-#ifndef ARP_Helper
-#define ARP_helper
+#ifndef Packet_Helper
+#define Packet_Helper
 
 typedef struct ARP_Cache
 {
@@ -22,8 +22,27 @@ typedef struct ARP_Buf
     struct ARP_Buf *next;
 } ARP_Buf;
 
+struct icmp_hdr
+{
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
+    uint32_t data;
+} __attribute__((packed));
+
+#ifndef ICMP_REP
+#define ICMP_REP 0
+#endif
+
+#ifndef ICMP_REQ
+#define ICMP_REQ 8
+#endif
+
 void insertEntry(ARP_Cache *head, uint32_t ip, unsigned char *addr);
 unsigned char *checkExists(ARP_Cache *head, uint32_t ip);
+
+u_short cksum(u_short *buf, int count);
+uint16_t icmp_cksum(uint16_t *addr, int count);
 
 ARP_Buf *checkExistsBuf(ARP_Buf *head, uint32_t ip);
 void deleteIP(ARP_Buf *head, uint32_t ip);
