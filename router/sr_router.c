@@ -97,207 +97,150 @@ void sr_handle_ip_pack(struct sr_instance *sr,
         return;
     if (ip_part->ip_ttl == 1)
         return;
-    // PERFORMING CHECKS END ****************************************
 
-    // if we find that the packet is addressed to the router itself, we
-    // attempt to deal with it if it's a ping.
-    struct sr_if *if_walker = 0;
-    if_walker = sr->if_list;
+    // handling ping
+    struct sr_if *ping_handler = 0;
+    ping_handler = sr->if_list;
 
-    while (if_walker)
+    while (ping_handler)
     {
-        DebugMAC(if_walker->addr);
-        if (if_walker->ip == ip_dest)
+        if (ping_handler->ip == ip_dest)
         {
             handle_icmp_pack(sr, packet, len, interface);
             return;
         }
-        if_walker = if_walker->next;
+        ping_handler = ping_handler->next;
     }
 
-    // TRAVERSE ROUTING TABLE FOR IP START **************************
-    // we look for the interface that corresponds to the destination
-    // IP (ignoring the default route). If there are no matching
-    // interfaces, we then use the default route to send the packet
-    // to the gateway.
-
-    struct sr_rt *rt_walker = NULL, *default_route = NULL;
+    // check matching interface and forward
+    struct sr_rt *route_handler = NULL;
+    struct sr_rt *default_route = NULL;
     if (sr->routing_table == 0)
     {
-        printf(" *warning* Routing table empty \n");
+        printf("Routing Table is empty \n");
         return;
     }
+    route_handler = sr->routing_table;
 
-    rt_walker = sr->routing_table;
-    while (rt_walker)
+    while (route_handler)
     {
-        if (rt_walker->dest.s_addr == 0)
-        {
-            default_route = rt_walker;
-        }
-        else if ((ip_dest & rt_walker->mask.s_addr) == (rt_walker->dest.s_addr & rt_walker->mask.s_addr))
-        {
-            break;
-        }
-        rt_walker = rt_walker->next;
+        if (route_handler->dest.s_addr == 0)
+            default_route = route_handler;
+        else if ((ip_dest & route_handler->mask.s_addr) == (route_handler->dest.s_addr & route_handler->mask.s_addr))
+            break; // break we find matching destination address
+        route_handler = route_handler->next;
     }
 
-    if (rt_walker == NULL && default_route != NULL)
+    if (route_handler == NULL && default_route != NULL)
     {
-        rt_walker = default_route;
-        // we look to send to the gateway instead
-        ip_dest = rt_walker->gw.s_addr;
         flag_def = 1;
+        route_handler = default_route;
+        ip_dest = route_handler->gw.s_addr; // send to the gateway instead
     }
-    // TRAVERSE ROUTING TABLE FOR IP END ****************************
-
-    // TRAVERSE ARP CACHE TABLE FOR IP START **************************
-    ARP_Cache *cache_temp = &arp_head;
-    while (cache_temp != NULL)
+    ARP_Cache *cache_t = &arp_head;
+    while (cache_t != NULL)
     {
-        unsigned char *haddr = checkExists(cache_temp, ip_dest);
-        if (haddr != NULL)
+        unsigned char *mac_addr = checkExists(cache_t, ip_dest);
+        if (mac_addr != NULL)
         {
-            --ip_part->ip_ttl;
-
+            --ip_part->ip_ttl; // decrement the ttl by 1
             ip_part->ip_sum = 0;
-            temp = cksum((void *)ip_part, ip_part->ip_hl * 4 / 2);
+            temp = cksum((void *)ip_part, ip_part->ip_hl * 2);
             ip_part->ip_sum = temp;
-
-            // not necessary to check again, but just in case
-            temp = cksum((void *)ip_part, ip_part->ip_hl * 4 / 2);
+            temp = cksum((void *)ip_part, ip_part->ip_hl * 2);
             if (temp != 0)
                 return;
-
-            // modify the ethernet header,
-            struct sr_if *interface_info = sr_get_interface(sr, rt_walker->interface);
-            memcpy(eth_hdr->ether_shost, interface_info->addr, sizeof(eth_hdr->ether_shost));
-            memcpy(eth_hdr->ether_dhost, haddr, sizeof(eth_hdr->ether_dhost));
-
-            // then send off the packet.
-            int rc = sr_send_packet(sr, packet, len, rt_walker->interface);
-            assert(rc == 0);
+            // swapping header information
+            struct sr_if *if_info = sr_get_interface(sr, route_handler->interface);
+            memcpy(eth_hdr->ether_shost, if_info->addr, sizeof(eth_hdr->ether_shost));
+            memcpy(eth_hdr->ether_dhost, mac_addr, sizeof(eth_hdr->ether_dhost));
+            int rc = sr_send_packet(sr, packet, len, route_handler->interface); // send the packet
             return;
         }
-        cache_temp = cache_temp->next;
+        cache_t = cache_t->next;
     }
 
-    // if no ARP cache entry exists,
-    if (cache_temp == NULL)
+    if (cache_t == NULL) // if no ARP cache entry exists
     {
-        // we see if we are still waiting on an ARP request for that IP.
-        ARP_Buf *check_buf = checkExistsBuf(&buf_head, ip_dest);
 
-        // if we are not waiting, we send out an ARP request.
-        if (check_buf == NULL)
+        ARP_Buf *buffer = checkExistsBuf(&buf_head, ip_dest);
+        if (buffer == NULL)
         {
-            check_buf = insertNewEntry(&buf_head, ip_dest);
-            queueWaiting(check_buf, packet, len);
+            buffer = insertNewEntry(&buf_head, ip_dest);
+            queueWaiting(buffer, packet, len);
             if (flag_def)
-            {
-                send_arp_req(sr, packet, rt_walker->interface, ip_dest);
-            }
+                send_arp_req(sr, packet, route_handler->interface, ip_dest);
             else
-            {
-                send_arp_req(sr, packet, rt_walker->interface, 0);
-            }
-            // otherwise, we queue the packet to wait for that ARP response.
+                send_arp_req(sr, packet, route_handler->interface, 0);
         }
         else
-        {
-            queueWaiting(check_buf, packet, len);
-        }
+            queueWaiting(buffer, packet, len);
     }
-    // TRAVERSE ARP CACHE TABLE FOR IP START **************************
 }
 
 /*---------------------------------------------------------------------
  * Method: send_arp_req(struct sr_instance* sr,
- *                     uint8_t * orig_packet,
+ *                     uint8_t *packet,
  *                     char* interface)
  *
- *This method is called when an ARP request needs to be sent to
- *discover the hardware address of a specific IP. It creates a packet
- *with just enough size for the ethernet and arp header, modifies them
- *accordingly, and then sends an ARP request to the interface specified
- *via the interface parameter.
- *NOTE: The dest_ip parameter is 0 for normal queries, but for queries
- *where the IPs do not match with any of the interfaces aka the default
- *route is selected, the dest_ip is set to the IP of the gateway.
+ *This method sends the ARP request
  *---------------------------------------------------------------------*/
 void send_arp_req(struct sr_instance *sr,
-                  uint8_t *orig_packet,
+                  uint8_t *packet,
                   char *interface,
                   uint32_t dest_ip)
 {
-    uint8_t packet[sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr)];
-    memset(&packet, 0, sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr));
-    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
-    struct sr_arphdr *arp = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr));
+    int size_temp = sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr);
+    uint8_t temp_packet[size_temp];
+    memset(&temp_packet, 0, size_temp);
+    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)temp_packet;
+    struct sr_arphdr *arp = (struct sr_arphdr *)(temp_packet + sizeof(struct sr_ethernet_hdr));
 
-    // REQUIRED VALUES BEGIN ****************************************
-    // make destination MAC bits all 1
     for (int i = 0; i < ETHER_ADDR_LEN; ++i)
-    {
         eth->ether_dhost[i] = ~(eth->ether_dhost[i] & 0);
-    }
+    arp->ar_hln = 6;
+    arp->ar_pln = 4;
     eth->ether_type = ntohs(ETHERTYPE_ARP);
     arp->ar_hrd = ntohs(ARPHDR_ETHER);
     arp->ar_pro = ntohs(ETHERTYPE_IP);
-    arp->ar_hln = 6;
-    arp->ar_pln = 4;
     arp->ar_op = ntohs(ARP_REQUEST);
-    // REQUIRED VALUES END ******************************************
 
-    // need to test to see if I can shorten this via
-    // if_walker = sr_get_interface(sr, interface)
-    struct sr_if *if_walker = 0;
-    if_walker = sr->if_list;
-    while (if_walker)
+    struct sr_if *if_handler = 0;
+    if_handler = sr->if_list;
+    while (if_handler)
     {
-        if (strncmp(interface, if_walker->name, sizeof(if_walker->name)) == 0)
+        if (strncmp(interface, if_handler->name, sizeof(if_handler->name)) == 0)
             break;
-
-        if_walker = if_walker->next;
+        if_handler = if_handler->next;
     }
 
-    memcpy(eth->ether_shost, if_walker->addr, sizeof(eth->ether_shost));
-    arp->ar_sip = if_walker->ip;
-
+    memcpy(eth->ether_shost, if_handler->addr, sizeof(eth->ether_shost));
+    arp->ar_sip = if_handler->ip;
     memcpy(arp->ar_sha, eth->ether_shost, sizeof(arp->ar_sha));
 
-    // if we are not sending it via the default route,
     if (dest_ip == 0)
-    {
-        arp->ar_tip = ((struct ip *)(orig_packet + sizeof(struct sr_ethernet_hdr)))->ip_dst.s_addr;
-    }
+        arp->ar_tip = ((struct ip *)(packet + sizeof(struct sr_ethernet_hdr)))->ip_dst.s_addr;
     else
-    { // otherwise we send it to the gateway.
         arp->ar_tip = dest_ip;
-    }
-    memset(arp->ar_tha, 0, sizeof(arp->ar_tha));
 
-    int rc = sr_send_packet(sr, packet, sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arphdr), interface);
-    assert(rc == 0);
+    memset(arp->ar_tha, 0, sizeof(arp->ar_tha));
+    int rc = sr_send_packet(sr, temp_packet, size_temp, interface);
 }
 
 /*---------------------------------------------------------------------
  * Method: void sr_handle_arp_pack(struct sr_instance* sr,
- *                           uint8_t * packet,
+ *                           uint8_t *packet,
  *                           unsigned int len,
  *                           char* interface)
  *
- *This method is called when an ARP request needs to be sent to
- *discover the hardware address of a specific IP.
- *It also deals with ARP replies by sending all packets delayed
- *because we were waiting for an ARP response.
+ *This method handle arp responses
  *---------------------------------------------------------------------*/
 void sr_handle_arp_pack(struct sr_instance *sr,
                         uint8_t *packet,
                         unsigned int len,
                         char *interface)
 {
-    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
+    struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
     struct sr_arphdr *arp = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr));
 
     // if we have an ARP request,
@@ -327,8 +270,8 @@ void sr_handle_arp_pack(struct sr_instance *sr,
                 arp->ar_tip = arp->ar_sip;
                 arp->ar_sip = temp;
 
-                memcpy(eth->ether_dhost, eth->ether_shost, sizeof(eth->ether_dhost));
-                memcpy(eth->ether_shost, arp->ar_sha, sizeof(arp->ar_sha));
+                memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, sizeof(eth_hdr->ether_dhost));
+                memcpy(eth_hdr->ether_shost, arp->ar_sha, sizeof(arp->ar_sha));
 
                 int rc = sr_send_packet(sr, packet, len, interface);
                 assert(rc == 0);
