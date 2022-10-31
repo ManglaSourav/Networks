@@ -329,6 +329,8 @@ void sr_handlepacket(struct sr_instance *sr,
     assert(sr);
     assert(packet);
     assert(interface);
+    printf("Recived packet of len %d on %s\n", len, interface);
+
     struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
     int type = htons(eth->ether_type);
     if (type == ETHERTYPE_IP)
