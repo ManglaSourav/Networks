@@ -7,7 +7,7 @@
 #include "Packet_Helper.h"
 
 // insert new cache entry
-void entry_exists_in_cache(ARP_Cache *head, uint32_t ip, unsigned char *addr)
+void insert_ARPCache_Entry(ARP_Cache *head, uint32_t ip, unsigned char *addr)
 {
     ARP_Cache *temp = (ARP_Cache *)malloc(sizeof(ARP_Cache));
     temp->ip = ip;
@@ -18,7 +18,7 @@ void entry_exists_in_cache(ARP_Cache *head, uint32_t ip, unsigned char *addr)
 }
 
 // check entry present in the cache or not
-unsigned char *insert_ARPCache_Entry(ARP_Cache *head, uint32_t ip)
+unsigned char *entry_exists_in_cache(ARP_Cache *head, uint32_t ip)
 {
     ARP_Cache *temp = head;
     while (temp->next != NULL && (temp->next)->ip != ip)

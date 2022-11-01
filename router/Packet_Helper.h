@@ -38,8 +38,8 @@ struct icmp_hdr
     uint32_t data;
 } __attribute__((packed));
 
-void entry_exists_in_cache(ARP_Cache *head, uint32_t ip, unsigned char *addr);
-unsigned char *insert_ARPCache_Entry(ARP_Cache *head, uint32_t ip);
+void insert_ARPCache_Entry(ARP_Cache *head, uint32_t ip, unsigned char *addr);
+unsigned char *entry_exists_in_cache(ARP_Cache *head, uint32_t ip);
 u_short cksum(u_short *buf, int count);
 uint16_t icmp_cksum(uint16_t *addr, int count);
 ARP_Buf *insert_ARPBuf_Entry(ARP_Buf *head, uint32_t ip);

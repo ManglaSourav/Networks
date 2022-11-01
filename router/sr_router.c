@@ -67,8 +67,8 @@ void handle_icmp_pack(struct sr_instance *sr,
     ip->ip_dst.s_addr = t;
 
     icmp_h->checksum = 0;
+    icmp_h->type = ICMP_REP; // make type to ICP reply
     icmp_h->checksum = icmp_cksum((uint16_t *)icmp_h, len - sizeof(struct sr_ethernet_hdr) - sizeof(struct ip));
-    icmp_h->type = ICMP_REP;                     // make type to ICP reply
     sr_handlepacket(sr, packet, len, interface); // in last, send out the packet.
 }
 
@@ -140,7 +140,7 @@ void sr_handle_ip_pack(struct sr_instance *sr,
     ARP_Cache *cache_t = &arp_head;
     while (cache_t != NULL)
     {
-        unsigned char *mac_addr = insert_ARPCache_Entry(cache_t, ip_dest);
+        unsigned char *mac_addr = entry_exists_in_cache(cache_t, ip_dest);
         if (mac_addr != NULL)
         {
             --ip_part->ip_ttl; // decrement the ttl by 1
@@ -277,7 +277,7 @@ void sr_handle_arp_pack(struct sr_instance *sr,
         ARP_Buf *curr = entry_exists_in_buf(&buf_head, arp_hdr->ar_sip);
         if (curr == NULL)
             return;
-        entry_exists_in_cache(&arp_head, arp_hdr->ar_sip, arp_hdr->ar_sha);
+        insert_ARPCache_Entry(&arp_head, arp_hdr->ar_sip, arp_hdr->ar_sha);
         unsigned int buf_length = 0;
         uint8_t *buf_packet = remove_from_queue(curr, &buf_length);
         while (buf_packet != NULL)
