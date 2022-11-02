@@ -17,6 +17,7 @@
 #ifdef VNL
 #include "vnlconn.h"
 #endif
+#include "Packet_Helper.h"
 
 /* we dont like this debug , but what to do for varargs ? */
 #ifdef _DEBUG_
@@ -74,6 +75,8 @@ struct sr_instance
     FILE *logfile;
     volatile uint8_t hw_init; /* bool : hardware has been initialized */
 
+    ARP_Cache arp_head;
+    ARP_Buf buf_head;
     /* -- pwospf subsystem -- */
     struct pwospf_subsys *ospf_subsys;
 };
@@ -95,5 +98,36 @@ void sr_add_interface(struct sr_instance *, const char *);
 void sr_set_ether_ip(struct sr_instance *, uint32_t);
 void sr_set_ether_addr(struct sr_instance *, const unsigned char *);
 void sr_print_if_list(struct sr_instance *);
+
+// function we implemented
+void sr_handleip(struct sr_instance *sr,
+                 uint8_t *packet,
+                 unsigned int len,
+                 char *interface);
+void sr_handlearp(struct sr_instance *sr,
+                  uint8_t *packet,
+                  unsigned int len,
+                  char *interface);
+void send_arpreq(struct sr_instance *sr,
+                 uint8_t *orig_packet,
+                 char *interface,
+                 uint32_t dest_ip);
+// 0 if successful, 1 if fail
+void handle_icmp(struct sr_instance *sr,
+                 uint8_t *packet,
+                 unsigned int len,
+                 char *interface);
+void handle_pwospf(struct sr_instance *sr,
+                   uint8_t *packet,
+                   unsigned int len,
+                   char *interface);
+void handle_pwospf_hello(struct sr_instance *sr,
+                         uint8_t *packet,
+                         unsigned int len,
+                         char *interface);
+char handle_pwospf_lsu(struct sr_instance *sr,
+                       uint8_t *packet,
+                       unsigned int len,
+                       char *interface);
 
 #endif /* SR_ROUTER_H */

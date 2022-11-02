@@ -108,3 +108,20 @@ uint8_t *remove_from_queue(ARP_Buf *entry, unsigned int *len)
     free(temp);
     return packet;
 }
+
+// It is the responsibility of the caller to free the packet after processing.
+uint8_t *extractPacket(ARP_Buf *spot, unsigned int *len)
+{
+    Wait_List *temp = spot->head.next;
+    if (temp == NULL)
+    {
+        return NULL;
+    }
+    uint8_t *packet = temp->packet;
+    *len = temp->len;
+
+    spot->head.next = temp->next;
+    free(temp);
+
+    return packet;
+}
