@@ -60,6 +60,7 @@ void handle_pwospf(struct sr_instance *sr,
     }
 }
 
+
 char handle_pwospf_lsu(struct sr_instance *sr,
                        uint8_t *packet,
                        unsigned int len,
@@ -219,7 +220,6 @@ void handle_pwospf_hello(struct sr_instance *sr,
 void sr_init(struct sr_instance *sr)
 {
     assert(sr);
-
     sr->arp_head.next = NULL;
     sr->buf_head.next = NULL;
 } /* -- sr_init -- */
@@ -312,162 +312,125 @@ void handle_icmp_pack(struct sr_instance *sr,
  *This method is called when the packet received by the router is
  *identified to have a type of IP.
  *---------------------------------------------------------------------*/
-void sr_handle_ip_pack(struct sr_instance *sr, // TODO: modify this
+void sr_handle_ip_pack(struct sr_instance *sr,
                        uint8_t *packet,
                        unsigned int len,
                        char *interface)
 {
-    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
-    struct ip *ip_portion = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
+    struct ip *ip_part = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
+    uint32_t ip_dest = ip_part->ip_dst.s_addr;
+    struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
+    char flag_def = 0;
 
-    uint32_t dest_ip = ip_portion->ip_dst.s_addr;
-    char take_default = 0;
+    if (ip_part->ip_v != 4)
+        return;
+    u_short temp = cksum((void *)ip_part, ip_part->ip_hl * 4 / 2);
+    if (temp != 0)
+        return;
+    if (ip_part->ip_ttl == 1)
+        return;
 
-    // PERFORMING CHECKS START **************************************
-    if (ip_portion->ip_v != 4)
-        return;
-    u_short test = cksum((void *)ip_portion, ip_portion->ip_hl * 4 / 2);
-    if (test != 0)
-        return;
-    if (ip_portion->ip_ttl == 1)
-        return;
-    // PERFORMING CHECKS END ****************************************
-
-    if (ip_portion->ip_p == IPROTO_OSPF)
+    if (ip_part->ip_p == IPROTO_OSPF)
     {
         handle_pwospf(sr, packet, len, interface);
         return;
     }
 
-    // if we find that the packet is addressed to the router itself, we
-    // attempt to deal with it if it's a ping.
-    struct sr_if *if_walker = 0;
-    if_walker = sr->if_list;
+    // handling ping
+    struct sr_if *ping_handler = 0;
+    ping_handler = sr->if_list;
 
-    struct in_addr temp_addr;
-    while (if_walker != NULL)
+    while (ping_handler != NULL)
     {
-        if (if_walker->ip == dest_ip)
+        if (ping_handler->ip == ip_dest)
         {
             handle_icmp_pack(sr, packet, len, interface);
             return;
         }
-        if_walker = if_walker->next;
+        ping_handler = ping_handler->next;
     }
 
-    // TRAVERSE ROUTING TABLE FOR IP START **************************
-    // we look for the interface that corresponds to the destination
-    // IP (ignoring the default route). If there are no matching
-    // interfaces, we then use the default route to send the packet
-    // to the gateway.
-
+    // check matching interface or see default interface and forward
     pwospf_lock(sr->ospf_subsys);
-    struct sr_rt *rt_walker = NULL, *default_route = NULL, *match = NULL;
+    struct sr_rt *route_handler = NULL;
+    struct sr_rt *default_route = NULL;
+    struct sr_rt *match = NULL;
     if (sr->routing_table == 0)
     {
         pwospf_unlock(sr->ospf_subsys);
         return;
     }
 
-    rt_walker = sr->routing_table;
-    while (rt_walker)
+    route_handler = sr->routing_table;
+    while (route_handler)
     {
-        if (rt_walker->dest.s_addr == 0)
+        if (route_handler->dest.s_addr == 0)
+            default_route = route_handler;
+        else if ((ip_dest & route_handler->mask.s_addr) == (route_handler->dest.s_addr & route_handler->mask.s_addr))
         {
-            default_route = rt_walker;
+            if (match == NULL || route_handler->mask.s_addr > match->mask.s_addr)
+                match = route_handler;
         }
-        else if ((dest_ip & rt_walker->mask.s_addr) == (rt_walker->dest.s_addr & rt_walker->mask.s_addr))
-        {
-            if (match == NULL || rt_walker->mask.s_addr > match->mask.s_addr)
-            {
-                match = rt_walker;
-            }
-        }
-        rt_walker = rt_walker->next;
+        route_handler = route_handler->next;
     }
     pwospf_unlock(sr->ospf_subsys);
-
-    // there should never be a case where the default route is NULL
+    // default should not null
     if (match == NULL && default_route != NULL)
     {
         match = default_route;
-        // we look to send to the gateway instead
-        dest_ip = match->gw.s_addr;
-        take_default = 1;
+        ip_dest = match->gw.s_addr; // look the gateway
+        flag_def = 1;
     }
     else if (match == NULL)
-    {
-        // printf("No route to get there.\n");
         return;
-    }
     else if (match->gw.s_addr != 0)
-    {
-        dest_ip = match->gw.s_addr;
-    }
-    // TRAVERSE ROUTING TABLE FOR IP END ****************************
+        ip_dest = match->gw.s_addr;
 
-    // TRAVERSE ARP CACHE TABLE FOR IP START **************************
-    ARP_Cache *cache_temp = &(sr->arp_head);
-    while (cache_temp != NULL)
+    ARP_Cache *cache_t = &(sr->arp_head);
+    while (cache_t != NULL)
     {
-        unsigned char *haddr = entry_exists_in_cache(cache_temp, dest_ip);
-        if (haddr != NULL)
+        unsigned char *mac_addr = entry_exists_in_cache(cache_t, ip_dest);
+        if (mac_addr != NULL)
         {
-            --ip_portion->ip_ttl;
+            --ip_part->ip_ttl;
 
-            ip_portion->ip_sum = 0;
-            test = cksum((void *)ip_portion, ip_portion->ip_hl * 4 / 2);
-            ip_portion->ip_sum = test;
+            ip_part->ip_sum = 0;
+            temp = cksum((void *)ip_part, ip_part->ip_hl * 4 / 2);
+            ip_part->ip_sum = temp;
 
-            // not necessary to check again, but just in case
-            test = cksum((void *)ip_portion, ip_portion->ip_hl * 4 / 2);
-            if (test != 0)
+            temp = cksum((void *)ip_part, ip_part->ip_hl * 4 / 2);
+            if (temp != 0)
                 return;
 
-            // modify the ethernet header,
+            // swapping header information
             struct sr_if *interface_info = sr_get_interface(sr, match->interface);
-            memcpy(eth->ether_shost, interface_info->addr, sizeof(eth->ether_shost));
-            memcpy(eth->ether_dhost, haddr, sizeof(eth->ether_dhost));
-
-            // then send off the packet.
+            memcpy(eth_hdr->ether_shost, interface_info->addr, sizeof(eth_hdr->ether_shost));
+            memcpy(eth_hdr->ether_dhost, mac_addr, sizeof(eth_hdr->ether_dhost));
             int rc = sr_send_packet(sr, packet, len, match->interface);
-            assert(rc == 0);
             return;
         }
-        cache_temp = cache_temp->next;
+        cache_t = cache_t->next;
     }
 
-    // if no ARP cache entry exists,
-    if (cache_temp == NULL)
+    if (cache_t == NULL)
     {
 
-        // we see if we are still waiting on an ARP request for that IP.
-        ARP_Buf *check_buf = entry_exists_in_buf(&(sr->buf_head), dest_ip);
-
-        // if we are not waiting, we send out an ARP request.
-        if (check_buf == NULL)
+        ARP_Buf *buffer = entry_exists_in_buf(&(sr->buf_head), ip_dest);
+        if (buffer == NULL)
         {
 
-            check_buf = insert_ARPBuf_Entry(&(sr->buf_head), dest_ip);
-            wait_in_queue(check_buf, packet, len);
-
-            // need to adjust to send for when gateway != 0
-            if (take_default || match->gw.s_addr != 0)
-            {
-                send_arp_req(sr, packet, match->interface, dest_ip);
-            }
+            buffer = insert_ARPBuf_Entry(&(sr->buf_head), ip_dest);
+            wait_in_queue(buffer, packet, len);
+            if (flag_def || match->gw.s_addr != 0)
+                send_arp_req(sr, packet, match->interface, ip_dest);
             else
-            {
                 send_arp_req(sr, packet, match->interface, 0);
-            }
-            // otherwise, we queue the packet to wait for that ARP response.
         }
         else
         {
-            wait_in_queue(check_buf, packet, len);
+            wait_in_queue(buffer, packet, len);
         }
     }
-    // TRAVERSE ARP CACHE TABLE FOR IP START **************************
 }
 
 /*---------------------------------------------------------------------
