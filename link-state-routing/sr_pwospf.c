@@ -388,7 +388,7 @@ void send_updates(struct sr_instance *sr)
                 check_buf = insert_ARPBuf_Entry(&(sr->buf_head), dest_ip);
                 wait_in_queue(check_buf, lsu_packet, lsu_len);
 
-                send_arpreq(sr, lsu_packet, if_walker->name, dest_ip);
+                send_arp_req(sr, lsu_packet, if_walker->name, dest_ip);
                 // otherwise, we queue the packet to wait for that ARP response.
             }
             else
