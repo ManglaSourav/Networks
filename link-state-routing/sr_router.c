@@ -28,186 +28,6 @@
 #include "pwospf_protocol.h"
 #include "Packet_Helper.h"
 
-void handle_pwospf(struct sr_instance *sr,
-                   uint8_t *packet,
-                   unsigned int len,
-                   char *interface)
-{
-    // struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr*) packet;
-    // struct ip *ip = (struct ip*) (packet + sizeof(struct sr_ethernet_hdr));
-    struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
-
-    if (ospf_hdr->type == OSPF_TYPE_HELLO)
-    {
-        // struct ospfv2_hello_hdr *hello_hdr = (struct ospfv2_hello_hdr*) (ospf_hdr + sizeof(struct ospfv2_hdr));
-        // if(address is broadcast)
-        // if(checksum valid)
-        //  for now, ignore checks
-        //  if we have a pwospf hello packet, check if 224.0.0.5
-
-        pwospf_lock(sr->ospf_subsys);
-        handle_pwospf_hello(sr, packet, len, interface);
-        pwospf_unlock(sr->ospf_subsys);
-    }
-    else if (ospf_hdr->type == OSPF_TYPE_LSU)
-    {
-        pwospf_lock(sr->ospf_subsys);
-        if (handle_pwospf_lsu(sr, packet, len, interface))
-        {
-            send_updates(sr); // change in topology to send update
-        }
-        pwospf_unlock(sr->ospf_subsys);
-    }
-}
-
-
-char handle_pwospf_lsu(struct sr_instance *sr,
-                       uint8_t *packet,
-                       unsigned int len,
-                       char *interface)
-{
-    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
-    struct ip *ip = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
-    struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
-
-    // lsu specific headers
-    struct ospfv2_lsu_hdr *lsu_hdr = (struct ospfv2_lsu_hdr *)((uint8_t *)ospf_hdr + sizeof(struct ospfv2_hdr));
-    struct ospfv2_lsu *lsu_ad = (struct ospfv2_lsu *)((uint8_t *)lsu_hdr + sizeof(struct ospfv2_lsu_hdr));
-
-    int i;
-    for (i = 0; i < ETHER_ADDR_LEN; ++i)
-    {
-        if (eth->ether_dhost[i] != 0)
-            break;
-    }
-    // this means we sent an ARP request and need to resend the packet.
-    if (i == ETHER_ADDR_LEN)
-    {
-        ARP_Cache *cache_temp = &(sr->arp_head);
-        unsigned char *haddr = entry_exists_in_cache(cache_temp, ip->ip_dst.s_addr);
-        if (haddr != NULL)
-        {
-            memcpy(eth->ether_dhost, haddr, sizeof(eth->ether_dhost));
-            int rc = sr_send_packet(sr, packet, len, interface);
-            assert(rc == 0);
-        }
-        else
-        {
-            struct in_addr ip_dest;
-            ip_dest.s_addr = ip->ip_dst.s_addr;
-            printf("NO ARP CACHE ENTRY EXISTS FOR IP %s, SHOULD NOT HAPPEN.\n", inet_ntoa(ip_dest));
-        }
-        return 0;
-    }
-
-    // otherwise, we process the packet normally
-    Router *router = &(sr->ospf_subsys->head_router);
-    // printf("Router info: %d\n", router->next->seq);
-    router = checkRouterExists(router, ospf_hdr->rid);
-    char flag = 0;
-
-    if (sr_get_interface(sr, "eth0")->ip == ospf_hdr->rid)
-    {
-        return flag;
-    }
-
-    // if router does not exist, add it
-    if (router == NULL)
-    {
-        // print("Adding new router in update\n");
-        router = insertNewRouter(&(sr->ospf_subsys->head_router), ospf_hdr->rid);
-        struct sr_if *iface = sr_get_interface(sr, interface);
-        iface->neighbor_ip = ip->ip_src.s_addr;
-        iface->neighbor_rid = ospf_hdr->rid;
-        iface->up = 1;
-        // sr_print_if(iface);
-
-        // then, we update the next hops if they exists
-        struct sr_rt *rt_walker = sr->routing_table;
-        while (rt_walker)
-        {
-            if (strcmp(rt_walker->interface, iface->name) == 0)
-                rt_walker->gw.s_addr = iface->neighbor_ip;
-            rt_walker = rt_walker->next;
-        }
-        flag = 1;
-    }
-
-    if (lsu_hdr->seq <= router->seq)
-    {
-        return flag;
-    }
-
-    removeAllLinks(router);
-    for (i = 0; i < lsu_hdr->num_adv; ++i)
-    {
-        if (lsu_ad->rid == 0)
-            addLink(router, lsu_ad->subnet, lsu_ad->mask, ospf_hdr->rid);
-        else
-            addLink(router, lsu_ad->subnet, lsu_ad->mask, lsu_ad->rid);
-
-        lsu_ad = (struct ospfv2_lsu *)((uint8_t *)lsu_ad + sizeof(struct ospfv2_lsu));
-    }
-
-    recalculate_rt(sr);
-
-    return flag;
-}
-
-/*---------------------------------------------------------------------
- * Method: handle_pwospf_hello(struct sr_instance* sr,
- *                             uint8_t * packet,
- *                             unsigned int len,
- *                             char* interface)
- * Scope:  Global
- *
- * Initialize the routing subsystem
- *
- *---------------------------------------------------------------------*/
-void handle_pwospf_hello(struct sr_instance *sr,
-                         uint8_t *packet,
-                         unsigned int len,
-                         char *interface)
-{
-    struct ip *ip = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
-    struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
-
-    Router *router = &(sr->ospf_subsys->head_router);
-    router = checkRouterExists(router, ospf_hdr->rid);
-
-    // if we found a new router,
-    if (router == NULL)
-    {
-        // printf("Inserting new router.\n");
-        router = insertNewRouter(&(sr->ospf_subsys->head_router), ospf_hdr->rid);
-
-        struct sr_if *iface = sr_get_interface(sr, interface);
-        iface->neighbor_ip = ip->ip_src.s_addr;
-        iface->neighbor_rid = ospf_hdr->rid;
-        iface->up = 1;
-        // sr_print_if(iface);
-
-        // then, we update the next hop if it exists
-        struct sr_rt *rt_walker = sr->routing_table;
-        while (rt_walker)
-        {
-            if (strcmp(rt_walker->interface, iface->name) == 0)
-            {
-                // print("Replacing nexthop\n");
-                rt_walker->gw.s_addr = iface->neighbor_ip;
-            }
-            rt_walker = rt_walker->next;
-        }
-        send_updates(sr); // change in topology to send update
-    }
-    else
-    {
-        updateTime(router);
-    }
-
-    // print_db(&(sr->ospf_subsys->head_router));
-    // printf("*****\n");
-}
 
 /*---------------------------------------------------------------------
  * Method: sr_init(void)
@@ -498,77 +318,181 @@ void sr_handle_arp_pack(struct sr_instance *sr, // TODO: modify this
                         unsigned int len,
                         char *interface)
 {
-    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
+    struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
     struct sr_arphdr *arp = (struct sr_arphdr *)(packet + sizeof(struct sr_ethernet_hdr));
 
-    // if we have an ARP request,
     if (arp->ar_op == ntohs(1))
     {
-        // we attempt to find the interface
-        struct sr_if *if_walker = 0;
+        struct sr_if *if_handler = 0;
         if (sr->if_list == 0)
-        {
-            // printf(" Interface list empty \n");
             return;
-        }
-        if_walker = sr->if_list;
-        while (if_walker != NULL)
+        if_handler = sr->if_list;
+        while (if_handler != NULL)
         {
-            // struct in_addr ip_addr; , ip_addr1;
-            // ip_addr.s_addr = arp->ar_tip;
-            // ip_addr1.s_addr = if_walker->ip;
-
-            // if we find the interface,
-            if (if_walker->ip == arp->ar_tip)
+            if (if_handler->ip == arp->ar_tip)
             {
                 arp->ar_op = ntohs(2);
                 memcpy(arp->ar_tha, arp->ar_sha, sizeof(arp->ar_tha));
-                memcpy(arp->ar_sha, if_walker->addr, sizeof(arp->ar_sha));
-                uint32_t temp = arp->ar_tip;
+                memcpy(arp->ar_sha, if_handler->addr, sizeof(arp->ar_sha));
+                uint32_t t = arp->ar_tip;
                 arp->ar_tip = arp->ar_sip;
-                arp->ar_sip = temp;
-
-                memcpy(eth->ether_dhost, eth->ether_shost, sizeof(eth->ether_dhost));
-                memcpy(eth->ether_shost, arp->ar_sha, sizeof(arp->ar_sha));
-
+                arp->ar_sip = t;
+                memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, sizeof(eth_hdr->ether_dhost));
+                memcpy(eth_hdr->ether_shost, arp->ar_sha, sizeof(arp->ar_sha));
                 int rc = sr_send_packet(sr, packet, len, interface);
-                assert(rc == 0);
                 break;
             }
-            if_walker = if_walker->next;
+            if_handler = if_handler->next;
         }
-
-        // this should never happen
-        if (if_walker->next == NULL)
+        if (if_handler->next == NULL)
         {
-            struct in_addr temp;
-            temp.s_addr = arp->ar_sip;
-            // printf("ARP Req from %s\n", inet_ntoa(temp));
-            temp.s_addr = arp->ar_tip;
-            // printf("ARP Req for %s yielded no matches\n", inet_ntoa(temp));
+            struct in_addr t;
+            t.s_addr = arp->ar_sip;
+            t.s_addr = arp->ar_tip;
         }
     }
     else if (arp->ar_op == ntohs(2))
     {
-        // otherwise if we have an ARP response, we parse it if we are waiting for a response
         ARP_Buf *curr = entry_exists_in_buf(&(sr->buf_head), arp->ar_sip);
-
-        // if we got a response but never sent a request, ignore it
         if (curr == NULL)
             return;
-
-        // otherwise, we add the info to our ARP cache
         insert_ARPCache_Entry(&(sr->arp_head), arp->ar_sip, arp->ar_sha);
-        // print_arp_cache((sr->arp_head));
         unsigned int buf_len = 0;
         uint8_t *buf_packet = extractPacket(curr, &buf_len);
         while (buf_packet != NULL)
         {
-            // struct ip *ip_portion = (struct ip*) (buf_packet + sizeof(struct sr_ethernet_hdr));
             sr_handlepacket(sr, buf_packet, buf_len, interface);
-
             free(buf_packet);
             buf_packet = extractPacket(curr, &buf_len);
         }
     }
+}
+
+void handle_pwospf(struct sr_instance *sr,
+                   uint8_t *packet,
+                   unsigned int len,
+                   char *interface)
+{
+    struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
+
+    if (ospf_hdr->type == OSPF_TYPE_HELLO)
+    {
+        pwospf_lock(sr->ospf_subsys);
+        handle_pwospf_hello(sr, packet, len, interface);
+        pwospf_unlock(sr->ospf_subsys);
+    }
+    else if (ospf_hdr->type == OSPF_TYPE_LSU)
+    {
+        pwospf_lock(sr->ospf_subsys);
+        if (handle_pwospf_lsu(sr, packet, len, interface))
+            send_updates(sr);
+        pwospf_unlock(sr->ospf_subsys);
+    }
+}
+
+char handle_pwospf_lsu(struct sr_instance *sr,
+                       uint8_t *packet,
+                       unsigned int len,
+                       char *interface)
+{
+    struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
+    struct ip *ip = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
+    struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
+
+    struct ospfv2_lsu_hdr *lsu_hdr = (struct ospfv2_lsu_hdr *)((uint8_t *)ospf_hdr + sizeof(struct ospfv2_hdr));
+    struct ospfv2_lsu *lsu_add = (struct ospfv2_lsu *)((uint8_t *)lsu_hdr + sizeof(struct ospfv2_lsu_hdr));
+
+    int i;
+    for (i = 0; i < ETHER_ADDR_LEN; ++i)
+    {
+        if (eth_hdr->ether_dhost[i] != 0)
+            break;
+    }
+    if (i == ETHER_ADDR_LEN)
+    {
+        ARP_Cache *cache_t = &(sr->arp_head);
+        unsigned char *haddr = entry_exists_in_cache(cache_t, ip->ip_dst.s_addr);
+        if (haddr != NULL)
+        {
+            memcpy(eth_hdr->ether_dhost, haddr, sizeof(eth_hdr->ether_dhost));
+            sr_send_packet(sr, packet, len, interface);
+        }
+        else
+        {
+            struct in_addr ip_dest;
+            ip_dest.s_addr = ip->ip_dst.s_addr;
+        }
+        return 0;
+    }
+    Router *router = &(sr->ospf_subsys->head_router);
+    router = checkRouterExists(router, ospf_hdr->rid);
+    char flg = 0;
+    if (sr_get_interface(sr, "eth0")->ip == ospf_hdr->rid)
+        return flg;
+    if (router == NULL)
+    {
+        router = insertNewRouter(&(sr->ospf_subsys->head_router), ospf_hdr->rid);
+        struct sr_if *iface = sr_get_interface(sr, interface);
+        iface->neighbor_ip = ip->ip_src.s_addr;
+        iface->neighbor_rid = ospf_hdr->rid;
+        iface->up = 1;
+        struct sr_rt *rt_handler = sr->routing_table;
+        while (rt_handler)
+        {
+            if (strcmp(rt_handler->interface, iface->name) == 0)
+                rt_handler->gw.s_addr = iface->neighbor_ip;
+            rt_handler = rt_handler->next;
+        }
+        flg = 1;
+    }
+    if (lsu_hdr->seq <= router->seq)
+        return flg;
+    removeAllLinks(router);
+    for (i = 0; i < lsu_hdr->num_adv; ++i)
+    {
+        if (lsu_add->rid == 0)
+            addLink(router, lsu_add->subnet, lsu_add->mask, ospf_hdr->rid);
+        else
+            addLink(router, lsu_add->subnet, lsu_add->mask, lsu_add->rid);
+        lsu_add = (struct ospfv2_lsu *)((uint8_t *)lsu_add + sizeof(struct ospfv2_lsu));
+    }
+    recalculate_rt(sr);
+    return flg;
+}
+
+/*---------------------------------------------------------------------
+ * Method: handle_pwospf_hello(struct sr_instance* sr,
+ *                             uint8_t * packet,
+ *                             unsigned int len,
+ *                             char* interface)
+ * Set up the routing system.
+ *---------------------------------------------------------------------*/
+void handle_pwospf_hello(struct sr_instance *sr,
+                         uint8_t *packet,
+                         unsigned int len,
+                         char *interface)
+{
+    struct ip *ip = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
+    struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
+
+    Router *router = &(sr->ospf_subsys->head_router);
+    router = checkRouterExists(router, ospf_hdr->rid);
+    if (router == NULL)
+    {
+        router = insertNewRouter(&(sr->ospf_subsys->head_router), ospf_hdr->rid);
+        struct sr_if *iface = sr_get_interface(sr, interface);
+        iface->neighbor_ip = ip->ip_src.s_addr;
+        iface->neighbor_rid = ospf_hdr->rid;
+        iface->up = 1;
+        struct sr_rt *rt_handler = sr->routing_table;
+        while (rt_handler)
+        {
+            if (strcmp(rt_handler->interface, iface->name) == 0)
+                rt_handler->gw.s_addr = iface->neighbor_ip;
+            rt_handler = rt_handler->next;
+        }
+        send_updates(sr);
+    }
+    else
+        updateTime(router);
 }

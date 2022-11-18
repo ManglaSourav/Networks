@@ -99,20 +99,18 @@ void sr_set_ether_ip(struct sr_instance *, uint32_t);
 void sr_set_ether_addr(struct sr_instance *, const unsigned char *);
 void sr_print_if_list(struct sr_instance *);
 
-// function we implemented
 void sr_handle_ip_pack(struct sr_instance *sr,
                        uint8_t *packet,
                        unsigned int len,
                        char *interface);
 void sr_handle_arp_pack(struct sr_instance *sr,
-                                    uint8_t *packet,
-                                    unsigned int len,
-                                    char *interface);
+                        uint8_t *packet,
+                        unsigned int len,
+                        char *interface);
 void send_arp_req(struct sr_instance *sr,
-                             uint8_t *orig_packet,
-                             char *interface,
-                             uint32_t dest_ip);
-// 0 if successful, 1 if fail
+                  uint8_t *orig_packet,
+                  char *interface,
+                  uint32_t dest_ip);
 void handle_icmp_pack(struct sr_instance *sr,
                       uint8_t *packet,
                       unsigned int len,
