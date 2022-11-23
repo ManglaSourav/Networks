@@ -21,242 +21,161 @@
 #include "sr_protocol.h"
 #include "pwospf_protocol.h"
 
-/* -- declaration of main thread function for pwospf subsystem --- */
 static void *pwospf_run_thread(void *arg);
 
-// return 0 if everything is okay, 1 otherwise
 char check_timeout(struct sr_instance *sr)
 {
-    char flag = 0;
     Router *curr_router = &(sr->ospf_subsys->head_router);
+    char temp = 0;
     time_t curr_time = time(0);
-    struct in_addr temp_addr;
-    // printf("Checking timeout.\n");
+    struct in_addr t_addr;
     while (curr_router->next != NULL)
     {
         if (curr_time - curr_router->next->time >= 10)
-        { // OSPF_NEIGHBOR_TIMEOUT) {
-            // printf("Times: %ld %ld\n", curr_time, curr_router->next->time);
-            // printf("LINK DOWN DETECTED\n");
+        { // Link down detected
             struct sr_if *iface = sr_get_interface_n_rid(sr, curr_router->next->rid);
-            // temp.s_addr = iface->neighbor_ip;
-            // printf("Interface: %s\n", iface->name);
-            iface->up = 0; // mark the relevant interface as down
+            iface->up = 0;
             iface->neighbor_ip = 0;
             iface->neighbor_rid = 0;
-            // then we go through the routing table and remove entries
-            struct sr_rt *curr_rt = sr->routing_table, *temp = NULL;
-
+            struct sr_rt *curr_rt = sr->routing_table, *t = NULL;
             while (strcmp(curr_rt->interface, iface->name) == 0 && !(curr_rt->static_flag))
-            { // just in case check static
-                temp_addr = curr_rt->dest;
-                // printf("Removing 1st rt entry: %s\n", inet_ntoa(temp_addr));
-                temp = curr_rt;
-                sr->routing_table = temp->next;
+            {
+                t_addr = curr_rt->dest;
+                t = curr_rt;
+                sr->routing_table = t->next;
                 curr_rt = sr->routing_table;
-                flag = 1;
-                free(temp);
+                temp = 1;
+                free(t);
             }
 
             while (curr_rt->next != NULL)
             {
-                temp_addr = curr_rt->next->dest;
-                // printf("Looking at rt entry: %s, interface %s %d %d\n", inet_ntoa(temp_addr), curr_rt->next->interface, strcmp(curr_rt->next->interface, iface->name), !(curr_rt->next->static_flag));
+                t_addr = curr_rt->next->dest;
                 if (strcmp(curr_rt->next->interface, iface->name) == 0 && !(curr_rt->next->static_flag))
                 {
-                    temp_addr = curr_rt->next->dest;
-                    // printf("Removing rt entry: %s\n", inet_ntoa(temp_addr));
-                    temp = curr_rt->next;
-                    curr_rt->next = temp->next;
-                    free(temp);
-                    flag = 1;
+                    t_addr = curr_rt->next->dest;
+                    t = curr_rt->next;
+                    curr_rt->next = t->next;
+                    free(t);
+                    temp = 1;
                 }
                 else
-                {
                     curr_rt = curr_rt->next;
-                }
             }
             delete_Router(&(sr->ospf_subsys->head_router), curr_router->next->rid);
-            // print_db(&(sr->ospf_subsys->head_router));
-            // sr_print_routing_table(sr);
         }
         else
-        {
             curr_router = curr_router->next;
-        }
     }
-
-    return flag;
+    return temp;
 }
 
 /*---------------------------------------------------------------------
  * Method: calculate_rt(..)
- *
- * Sets up the internal data structures for the pwospf subsystem
- *
- * You may assume that the interfaces have been created and initialized
- * by this point.
+ * internal structure is initialized here
  *---------------------------------------------------------------------*/
 void calculate_rt(struct sr_instance *sr)
 {
-    struct sr_if *if_walker = sr->if_list;
-    struct sr_rt *rt_walker = sr->routing_table;
-    // printf("********************************\n");
-    // printf("RECALCULATING RT\n");
-    // printf("Routers:\n");
-    // print_db(&(sr->ospf_subsys->head_router));
-    // printf("Initial Routing table:\n");
-    // sr_print_routing_table(sr);
-    // printf("\n");
-
+    struct sr_if *if_handler = sr->if_list;
+    struct sr_rt *rt_handler = sr->routing_table;
     Router *router = NULL;
-    while (if_walker != NULL)
+    while (if_handler != NULL)
     {
-        if (!(if_walker->up))
+        if (!(if_handler->up))
         {
-            if_walker = if_walker->next;
+            if_handler = if_handler->next;
             continue;
         }
-
-        rt_walker = sr->routing_table;
-        while (rt_walker != NULL)
+        rt_handler = sr->routing_table;
+        while (rt_handler != NULL)
         {
-            if ((if_walker->mask & if_walker->ip) == (rt_walker->mask.s_addr & rt_walker->dest.s_addr) && if_walker->mask > 0)
-            { // aka default
+            if ((if_handler->mask & if_handler->ip) == (rt_handler->mask.s_addr & rt_handler->dest.s_addr) && if_handler->mask > 0)
                 break;
-            }
-            rt_walker = rt_walker->next;
+            rt_handler = rt_handler->next;
         }
-
-        // if no existing route exists,
-        if (rt_walker == NULL)
+        if (rt_handler == NULL)
         {
-            // we add it
             struct in_addr dest, gw, mask;
-            dest.s_addr = if_walker->ip;
-            gw.s_addr = if_walker->neighbor_ip;
-            mask.s_addr = if_walker->mask;
-            sr_add_rt_entry(sr, dest, gw, mask, if_walker->name);
-            // printf("Adding to rt\n");
+            dest.s_addr = if_handler->ip;
+            gw.s_addr = if_handler->neighbor_ip;
+            mask.s_addr = if_handler->mask;
+            sr_add_rt_entry(sr, dest, gw, mask, if_handler->name);
         }
-
-        if_walker = if_walker->next;
+        if_handler = if_handler->next;
     }
-
-    // then we look at neighbors
     router = NULL;
-    if_walker = sr->if_list;
-    while (if_walker != NULL)
+    if_handler = sr->if_list;
+    while (if_handler != NULL)
     {
-        // if no neighboring router, don't look at it
-        if (if_walker->neighbor_rid == 0)
+        if (if_handler->neighbor_rid == 0)
         {
-            // printf("Skipping interface %s\n", if_walker->name);
-            if_walker = if_walker->next;
+            if_handler = if_handler->next;
             continue;
         }
-        // printf("Printing le interface info:\n");
-        // sr_print_if(if_walker);
-
-        router = check_Router_Exists(&(sr->ospf_subsys->head_router), if_walker->neighbor_rid);
+        router = check_Router_Exists(&(sr->ospf_subsys->head_router), if_handler->neighbor_rid);
         if (router == NULL)
         {
             struct in_addr temp;
-            temp.s_addr = if_walker->neighbor_rid;
-            // printf("For some reason router %s DNE.\n", inet_ntoa(temp));
+            temp.s_addr = if_handler->neighbor_rid;
         }
         else
         {
             struct in_addr temp_inaddr;
-            temp_inaddr.s_addr = if_walker->neighbor_rid;
-            // printf("***** CURRENTLY LOOKING AT ROUTER %s *****\n", inet_ntoa(temp_inaddr));
+            temp_inaddr.s_addr = if_handler->neighbor_rid;
         }
 
-        Link *curr_link = router->head.next;
-        // go throughall other routers and see if they have unknown paths
-        while (curr_link != NULL)
+        Link *link_handler = router->head.next;
+        while (link_handler != NULL)
         {
-            // if their route uses us, ignore
-            if (curr_link->rid == sr_get_interface(sr, "eth0")->ip)
+            if (link_handler->rid == sr_get_interface(sr, "eth0")->ip)
             {
-                // printf("Route uses us, ignore\n");
-                curr_link = curr_link->next;
+                link_handler = link_handler->next;
                 continue;
             }
-
-            rt_walker = sr->routing_table;
-            // going through all the other routes,
-            while (rt_walker != NULL)
+            rt_handler = sr->routing_table;
+            while (rt_handler != NULL)
             {
-                // if we find that the route already exists,
-                if ((curr_link->mask & curr_link->ip) == (rt_walker->mask.s_addr & rt_walker->dest.s_addr))
+                if ((link_handler->mask & link_handler->ip) == (rt_handler->mask.s_addr & rt_handler->dest.s_addr))
                 {
-                    struct sr_if *temp_iface = sr_get_interface(sr, rt_walker->interface);
-                    // if both routes lead to the same place, break
-                    if (curr_link->rid == temp_iface->neighbor_rid)
+                    struct sr_if *t_iface = sr_get_interface(sr, rt_handler->interface);
+                    if (link_handler->rid == t_iface->neighbor_rid)
                         break;
-
-                    // if we have a direct route aka gateway 0, break
-                    if (rt_walker->gw.s_addr == 0)
+                    if (rt_handler->gw.s_addr == 0)
                         break;
-
-                    // if attempting to remove static route, break
-                    if (rt_walker->static_flag)
+                    if (rt_handler->static_flag)
                         break;
-
-                    // otherwise, we check to see if the route is better
-                    // printf("Checking which route is superior:\n");
-                    // print_link(curr_link);
-                    // printf("---\n");
-                    // sr_print_routing_entry(rt_walker);
-                    // printf("--------\n");
-
-                    // find interface associated with exiting route table entry
-                    // sr_print_if(temp_iface);
 
                     Link *temp_link = search_Link(&(sr->ospf_subsys->head_router),
-                                                  temp_iface->neighbor_rid,
-                                                  rt_walker->dest.s_addr,
-                                                  rt_walker->mask.s_addr);
+                                                  t_iface->neighbor_rid,
+                                                  rt_handler->dest.s_addr,
+                                                  rt_handler->mask.s_addr);
 
                     if (temp_link == NULL)
-                        // printf("temp_link is NULL\n");
-
-                        // if we find that things are inefficient,
-                        if (temp_link->rid == curr_link->rid)
+                        if (temp_link->rid == link_handler->rid)
                         {
-                            // printf("Replacing entry in routing table\n");
-                            rt_walker->dest.s_addr = curr_link->ip;
-                            rt_walker->mask.s_addr = curr_link->mask;
-                            rt_walker->gw.s_addr = if_walker->neighbor_ip;
-                            memcpy(rt_walker->interface, if_walker->name, sizeof(char) * SR_IFACE_NAMELEN);
+                            rt_handler->dest.s_addr = link_handler->ip;
+                            rt_handler->mask.s_addr = link_handler->mask;
+                            rt_handler->gw.s_addr = if_handler->neighbor_ip;
+                            memcpy(rt_handler->interface, if_handler->name, sizeof(char) * SR_IFACE_NAMELEN);
                         }
                     break;
                 }
-                rt_walker = rt_walker->next;
+                rt_handler = rt_handler->next;
             }
-
-            // if no existing route exists,
-            if (rt_walker == NULL)
+            if (rt_handler == NULL)
             {
-                // we add it
                 struct in_addr dest, gw, mask;
-                dest.s_addr = curr_link->ip;
-                if (curr_link->mask)
-                    gw.s_addr = if_walker->neighbor_ip;
-                mask.s_addr = curr_link->mask;
-                sr_add_rt_entry(sr, dest, gw, mask, if_walker->name);
-                // printf("Adding to rt\n");
-                // print_db(&(sr->ospf_subsys->head_router));
+                dest.s_addr = link_handler->ip;
+                if (link_handler->mask)
+                    gw.s_addr = if_handler->neighbor_ip;
+                mask.s_addr = link_handler->mask;
+                sr_add_rt_entry(sr, dest, gw, mask, if_handler->name);
             }
-            curr_link = curr_link->next;
+            link_handler = link_handler->next;
         }
 
-        if_walker = if_walker->next;
+        if_handler = if_handler->next;
     }
-    // printf("Finishing recalculating, new routing table:\n");
-    // sr_print_routing_table(sr);
-    // printf("********************************\n");
 }
 
 /*---------------------------------------------------------------------
