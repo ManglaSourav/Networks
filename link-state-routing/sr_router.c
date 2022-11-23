@@ -19,7 +19,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include "top_db.h"
+#include "Router_Helper.h"
 #include "sr_if.h"
 #include "sr_rt.h"
 #include "sr_pwospf.h"
@@ -425,13 +425,13 @@ char handle_pwospf_lsu(struct sr_instance *sr,
         return 0;
     }
     Router *router = &(sr->ospf_subsys->head_router);
-    router = checkRouterExists(router, ospf_hdr->rid);
+    router = check_Router_Exists(router, ospf_hdr->rid);
     char flg = 0;
     if (sr_get_interface(sr, "eth0")->ip == ospf_hdr->rid)
         return flg;
     if (router == NULL)
     {
-        router = insertNewRouter(&(sr->ospf_subsys->head_router), ospf_hdr->rid);
+        router = insert_New_Router(&(sr->ospf_subsys->head_router), ospf_hdr->rid);
         struct sr_if *iface = sr_get_interface(sr, interface);
         iface->neighbor_ip = ip->ip_src.s_addr;
         iface->neighbor_rid = ospf_hdr->rid;
@@ -447,13 +447,13 @@ char handle_pwospf_lsu(struct sr_instance *sr,
     }
     if (lsu_hdr->seq <= router->seq)
         return flg;
-    removeAllLinks(router);
+    remove_All_Links(router);
     for (i = 0; i < lsu_hdr->num_adv; ++i)
     {
         if (lsu_add->rid == 0)
-            addLink(router, lsu_add->subnet, lsu_add->mask, ospf_hdr->rid);
+            add_new_Link(router, lsu_add->subnet, lsu_add->mask, ospf_hdr->rid);
         else
-            addLink(router, lsu_add->subnet, lsu_add->mask, lsu_add->rid);
+            add_new_Link(router, lsu_add->subnet, lsu_add->mask, lsu_add->rid);
         lsu_add = (struct ospfv2_lsu *)((uint8_t *)lsu_add + sizeof(struct ospfv2_lsu));
     }
     recalculate_rt(sr);
@@ -476,10 +476,10 @@ void handle_pwospf_hello(struct sr_instance *sr,
     struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
 
     Router *router = &(sr->ospf_subsys->head_router);
-    router = checkRouterExists(router, ospf_hdr->rid);
+    router = check_Router_Exists(router, ospf_hdr->rid);
     if (router == NULL)
     {
-        router = insertNewRouter(&(sr->ospf_subsys->head_router), ospf_hdr->rid);
+        router = insert_New_Router(&(sr->ospf_subsys->head_router), ospf_hdr->rid);
         struct sr_if *iface = sr_get_interface(sr, interface);
         iface->neighbor_ip = ip->ip_src.s_addr;
         iface->neighbor_rid = ospf_hdr->rid;
@@ -494,5 +494,5 @@ void handle_pwospf_hello(struct sr_instance *sr,
         send_updates(sr);
     }
     else
-        updateTime(router);
+        update_Router_Time(router);
 }

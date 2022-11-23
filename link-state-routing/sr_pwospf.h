@@ -13,7 +13,7 @@
 #include <pthread.h>
 
 //TODO:
-#include "top_db.h"
+#include "Router_Helper.h"
 
 #ifndef IPROTO_OSPF
 #define IPROTO_OSPF 89

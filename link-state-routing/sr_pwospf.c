@@ -77,7 +77,7 @@ char check_timeout(struct sr_instance *sr)
                     curr_rt = curr_rt->next;
                 }
             }
-            deleteRouter(&(sr->ospf_subsys->head_router), curr_router->next->rid);
+            delete_Router(&(sr->ospf_subsys->head_router), curr_router->next->rid);
             // print_db(&(sr->ospf_subsys->head_router));
             // sr_print_routing_table(sr);
         }
@@ -159,7 +159,7 @@ void recalculate_rt(struct sr_instance *sr)
         // printf("Printing le interface info:\n");
         // sr_print_if(if_walker);
 
-        router = checkRouterExists(&(sr->ospf_subsys->head_router), if_walker->neighbor_rid);
+        router = check_Router_Exists(&(sr->ospf_subsys->head_router), if_walker->neighbor_rid);
         if (router == NULL)
         {
             struct in_addr temp;
@@ -215,7 +215,7 @@ void recalculate_rt(struct sr_instance *sr)
                     // find interface associated with exiting route table entry
                     // sr_print_if(temp_iface);
 
-                    Link *temp_link = findLink(&(sr->ospf_subsys->head_router),
+                    Link *temp_link = search_Link(&(sr->ospf_subsys->head_router),
                                                temp_iface->neighbor_rid,
                                                rt_walker->dest.s_addr,
                                                rt_walker->mask.s_addr);
