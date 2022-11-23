@@ -171,26 +171,21 @@ void sr_print_routing_entry(struct sr_rt *entry)
 
 } /* -- sr_print_routing_entry -- */
 
-char interface_exists(struct sr_instance *sr, char *name)
+// 1 if true otherwise 0
+char if_exists(struct sr_instance *sr, char *name)
 {
-    struct sr_rt *rt_walker = 0;
-
+    struct sr_rt *rt_handler = 0;
     if (sr->routing_table == 0)
     {
         printf(" Routing table empty \n");
         return 0;
     }
-
-    rt_walker = sr->routing_table;
-
-    while (rt_walker != NULL)
+    rt_handler = sr->routing_table;
+    while (rt_handler != NULL)
     {
-        if (strcmp(rt_walker->interface, name) == 0)
-        {
+        if (strcmp(rt_handler->interface, name) == 0)
             return 1;
-        }
-        rt_walker = rt_walker->next;
+        rt_handler = rt_handler->next;
     }
-
     return 0;
 } /* -- sr_print_routing_table -- */

@@ -546,7 +546,7 @@ int pwospf_init(struct sr_instance *sr)
         dest.s_addr = if_walker->ip;
         gw.s_addr = 0;
         mask.s_addr = if_walker->mask;
-        if (!interface_exists(sr, if_walker->name))
+        if (!if_exists(sr, if_walker->name))
         {
             sr_add_rt_entry(sr, dest, gw, mask, if_walker->name);
         }

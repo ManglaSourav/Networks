@@ -33,8 +33,8 @@ struct sr_rt
     struct in_addr gw;
     struct in_addr mask;
     char interface[SR_IFACE_NAMELEN];
-    char static_flag; // 1 if static, 0 if dynamic
     struct sr_rt *next;
+    char static_flag;
 };
 
 int sr_load_rt(struct sr_instance *, const char *);
@@ -42,6 +42,6 @@ void sr_add_rt_entry(struct sr_instance *, struct in_addr, struct in_addr,
                      struct in_addr, char *);
 void sr_print_routing_table(struct sr_instance *sr);
 void sr_print_routing_entry(struct sr_rt *entry);
-char interface_exists(struct sr_instance *sr, char *name); // 1 if true, 0 if not
+char if_exists(struct sr_instance *sr, char *name); 
 
 #endif /* --  sr_RT_H -- */
