@@ -180,49 +180,37 @@ void calculate_rt(struct sr_instance *sr)
 
 /*---------------------------------------------------------------------
  * Method: post_updates(struct sr_instance* sr)
- *
- *This method is called when the packet received by the router is
- *identified to have a type of IP.
  *---------------------------------------------------------------------*/
 void post_updates(struct sr_instance *sr)
 {
-    // first, we find the number of advertisements that we need to make
-    // should add all routes in routing table
-    struct sr_if *if_walker = sr->if_list;
-    struct sr_rt *rt_walker = sr->routing_table;
-    int ad_count = 0;
+    struct sr_if *if_handler = sr->if_list;
+    struct sr_rt *rt_handler = sr->routing_table;
+    int count = 0;
 
-    while (rt_walker != NULL)
+    while (rt_handler != NULL)
     {
-        ad_count++;
-        rt_walker = rt_walker->next;
+        count++;
+        rt_handler = rt_handler->next;
     }
-
-    // then, we create our lsu packet,
-    uint32_t lsu_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct ip) + sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_lsu_hdr) + (ad_count * sizeof(struct ospfv2_lsu));
+    uint32_t lsu_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct ip) + sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_lsu_hdr) + (count * sizeof(struct ospfv2_lsu));
     uint8_t *lsu_packet = (uint8_t *)calloc(lsu_len, sizeof(uint8_t));
-
-    // and then begin filling out the packet
     struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)lsu_packet;
     eth->ether_type = ntohs(ETHERTYPE_IP);
 
-    // INITIALIZE IP HEADER START **********
     struct ip *ip = (struct ip *)(lsu_packet + sizeof(struct sr_ethernet_hdr));
     ip->ip_v = 4;
     ip->ip_hl = 5;
-    ip->ip_tos = 0; // normal
-    ip->ip_len = htons(sizeof(struct ip) + sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_lsu_hdr) + ad_count * sizeof(struct ospfv2_lsu));
+    ip->ip_tos = 0;
+    ip->ip_len = htons(sizeof(struct ip) + sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_lsu_hdr) + count * sizeof(struct ospfv2_lsu));
     ip->ip_id = 0;
     ip->ip_off = 0;
-    ip->ip_ttl = 255; // max ttl put here
+    ip->ip_ttl = 255;
     ip->ip_p = IPROTO_OSPF;
-    // INITIALIZE IP HEADER END   **********
 
-    // INITIALIZE OSPF HEADER START ********
     struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)((uint8_t *)ip + sizeof(struct ip));
     ospf_hdr->version = OSPF_V2;
     ospf_hdr->type = OSPF_TYPE_LSU;
-    ospf_hdr->len = sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_lsu_hdr) + ad_count * sizeof(struct ospfv2_lsu);
+    ospf_hdr->len = sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_lsu_hdr) + count * sizeof(struct ospfv2_lsu);
     ospf_hdr->rid = sr_get_interface(sr, "eth0")->ip;
     ospf_hdr->aid = 0;
     ospf_hdr->autype = 0;
@@ -232,91 +220,63 @@ void post_updates(struct sr_instance *sr)
     lsu_hdr->seq = sr->ospf_subsys->state_seq;
     sr->ospf_subsys->state_seq++;
 
-    lsu_hdr->ttl = 255; // arbitrary
-    lsu_hdr->num_adv = ad_count;
-    // INITIALIZE OSPF HEADER END   ********
+    lsu_hdr->ttl = 255;
+    lsu_hdr->num_adv = count;
 
-    // then, we fill out the link state advertisements
     struct ospfv2_lsu *lsu_ad = (struct ospfv2_lsu *)((uint8_t *)lsu_hdr + sizeof(struct ospfv2_lsu_hdr));
 
-    rt_walker = sr->routing_table;
-    // printf("Going through ad generation:\n");
-    while (rt_walker)
+    rt_handler = sr->routing_table;
+    while (rt_handler)
     {
-        lsu_ad->subnet = rt_walker->dest.s_addr;
-        lsu_ad->mask = rt_walker->mask.s_addr;
-        lsu_ad->rid = sr_get_interface(sr, rt_walker->interface)->neighbor_rid;
-        // print_lsu_ad(lsu_ad);
+        lsu_ad->subnet = rt_handler->dest.s_addr;
+        lsu_ad->mask = rt_handler->mask.s_addr;
+        lsu_ad->rid = sr_get_interface(sr, rt_handler->interface)->neighbor_rid;
         lsu_ad = (uint8_t *)lsu_ad + sizeof(struct ospfv2_lsu);
-        rt_walker = rt_walker->next;
+        rt_handler = rt_handler->next;
     }
-    // printf("Ad generation complete\n");
 
-    // lsu_ad = (struct ospfv2_lsu *) ((uint8_t *) lsu_hdr + sizeof(struct ospfv2_lsu_hdr));
-
-    // and send out the advertisements
-    if_walker = sr->if_list;
-    while (if_walker)
+    if_handler = sr->if_list;
+    while (if_handler)
     {
-        if (if_walker->neighbor_ip == 0)
+        if (if_handler->neighbor_ip == 0)
         {
-            if_walker = if_walker->next;
+            if_handler = if_handler->next;
             continue;
         }
-
-        memcpy(eth->ether_shost, if_walker->addr, sizeof(eth->ether_shost));
-
-        uint32_t dest_ip = if_walker->neighbor_ip;
-        ip->ip_src.s_addr = if_walker->ip;
+        memcpy(eth->ether_shost, if_handler->addr, sizeof(eth->ether_shost));
+        uint32_t dest_ip = if_handler->neighbor_ip;
+        ip->ip_src.s_addr = if_handler->ip;
         ip->ip_dst.s_addr = dest_ip;
         ip->ip_sum = 0;
         ip->ip_sum = cksum((void *)ip, ip->ip_hl * 4 / 2);
-
         ospf_hdr->csum = 0;
-        ospf_hdr->csum = cksum((void *)ospf_hdr, (sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_lsu_hdr) + ad_count * sizeof(struct ospfv2_lsu)) / 2);
-
-        // TRAVERSE ARP CACHE TABLE FOR IP START **************************
+        ospf_hdr->csum = cksum((void *)ospf_hdr, (sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_lsu_hdr) + count * sizeof(struct ospfv2_lsu)) / 2);
         ARP_Cache *cache_temp = &(sr->arp_head);
-        // I probably don't need this loop actually
         while (cache_temp != NULL)
         {
             unsigned char *haddr = entry_exists_in_cache(cache_temp, dest_ip);
             if (haddr != NULL)
             {
-                // modify the ethernet header,
                 memcpy(eth->ether_dhost, haddr, sizeof(eth->ether_dhost));
-                memcpy(eth->ether_shost, if_walker->addr, sizeof(eth->ether_shost));
-
-                // then send off the packet.
-                int rc = sr_send_packet(sr, lsu_packet, lsu_len, if_walker->name);
+                memcpy(eth->ether_shost, if_handler->addr, sizeof(eth->ether_shost));
+                int rc = sr_send_packet(sr, lsu_packet, lsu_len, if_handler->name);
                 assert(rc == 0);
             }
             cache_temp = cache_temp->next;
         }
-
-        // if no ARP cache entry exists,
         if (cache_temp == NULL)
         {
-            // we see if we are still waiting on an ARP request for that IP.
             ARP_Buf *check_buf = entry_exists_in_buf(&(sr->buf_head), dest_ip);
-
-            // if we are not waiting, we send out an ARP request.
             if (check_buf == NULL)
             {
                 check_buf = insert_ARPBuf_Entry(&(sr->buf_head), dest_ip);
                 wait_in_queue(check_buf, lsu_packet, lsu_len);
-
-                send_arp_req(sr, lsu_packet, if_walker->name, dest_ip);
-                // otherwise, we queue the packet to wait for that ARP response.
+                send_arp_req(sr, lsu_packet, if_handler->name, dest_ip);
             }
             else
-            {
                 wait_in_queue(check_buf, lsu_packet, lsu_len);
-            }
-        }
-        // TRAVERSE ARP CACHE TABLE FOR IP END **************************
-
-        if_walker = if_walker->next;
+                }
+        if_handler = if_handler->next;
     }
 
     free(lsu_packet);
@@ -324,39 +284,30 @@ void post_updates(struct sr_instance *sr)
 
 /*---------------------------------------------------------------------
  * Method: pwospf_run_thread
- *
  * Main thread of pwospf subsystem.
- *
  *---------------------------------------------------------------------*/
-
 static void *pwospf_run_thread(void *arg)
 {
     struct sr_instance *sr = (struct sr_instance *)arg;
-    uint32_t hello_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct ip) + sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_hello_hdr);
-    uint8_t hello_packet[hello_len];
+    uint32_t hello_length = sizeof(struct sr_ethernet_hdr) + sizeof(struct ip) + sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_hello_hdr);
+    uint8_t hello_packet[hello_length];
 
     struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)hello_packet;
-    // make destination MAC bits all 1
     for (int i = 0; i < ETHER_ADDR_LEN; ++i)
         eth->ether_dhost[i] = ~(eth->ether_dhost[i] & 0);
     eth->ether_type = ntohs(ETHERTYPE_IP);
-
-    // INITIALIZE IP HEADER START **********
     struct ip *ip = (struct ip *)(hello_packet + sizeof(struct sr_ethernet_hdr));
     ip->ip_v = 4;
     ip->ip_hl = 5;
-    ip->ip_tos = 0; // normal
+    ip->ip_tos = 0;
     ip->ip_len = htons(sizeof(struct ip) + sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_hello_hdr));
     ip->ip_id = 0;
     ip->ip_off = 0;
-    ip->ip_ttl = 255; // max ttl put here
+    ip->ip_ttl = 255;
     ip->ip_p = IPROTO_OSPF;
-    ip->ip_dst.s_addr = htonl(OSPF_AllSPFRouters); // 244.0.0.5
-    // INITIALIZE IP HEADER END   **********
+    ip->ip_dst.s_addr = htonl(OSPF_AllSPFRouters);
 
-    // INITIALIZE OSPF HEADER START ********
     struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)((uint8_t *)ip + sizeof(struct ip));
-    //(hello_packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct ip));
     ospf_hdr->version = (OSPF_V2);
     ospf_hdr->type = OSPF_TYPE_HELLO;
     ospf_hdr->len = sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_hello_hdr);
@@ -366,9 +317,7 @@ static void *pwospf_run_thread(void *arg)
     ospf_hdr->audata = 0;
 
     struct ospfv2_hello_hdr *hello_hdr = (struct ospfv2_hello_hdr *)((uint8_t *)ospf_hdr + sizeof(struct ospfv2_hdr));
-    //(ospf_hdr + sizeof(struct ospfv2_hdr));
     hello_hdr->helloint = OSPF_DEFAULT_HELLOINT;
-    // INITIALIZE OSPF HEADER END   ********
 
     int hello_cnt = 0, update_cnt = 0;
     char need_update = 0;
@@ -381,7 +330,7 @@ static void *pwospf_run_thread(void *arg)
         if (hello_cnt % OSPF_DEFAULT_HELLOINT == 0)
         {
             hello_cnt = 0;
-            say_hello(sr, hello_packet, hello_len);
+            say_hello(sr, hello_packet, hello_length);
         }
         if (update_cnt % OSPF_DEFAULT_LSUINT == 0 || need_update)
         {
@@ -389,7 +338,6 @@ static void *pwospf_run_thread(void *arg)
             update_cnt = 0;
         }
 
-        // printf("Done checking timeout.\n");
         if (need_update)
             calculate_rt(sr);
 
@@ -402,32 +350,29 @@ static void *pwospf_run_thread(void *arg)
     free(hello_packet);
 
     return NULL;
-} /* -- run_ospf_thread -- */
+}
 
 void say_hello(struct sr_instance *sr, uint8_t *packet, uint32_t len)
 {
-    // going through the interface list,
-    struct sr_if *if_walker = 0;
-    if_walker = sr->if_list;
+    struct sr_if *if_handler = 0;
+    if_handler = sr->if_list;
 
-    struct sr_ethernet_hdr *eth = (struct sr_ethernet_hdr *)packet;
+    struct sr_ethernet_hdr *eth_hdr = (struct sr_ethernet_hdr *)packet;
     struct ip *ip = (struct ip *)(packet + sizeof(struct sr_ethernet_hdr));
     struct ospfv2_hdr *ospf_hdr = (struct ospfv2_hdr *)((uint8_t *)ip + sizeof(struct ip));
     struct ospfv2_hello_hdr *hello_hdr = (struct ospfv2_hello_hdr *)((uint8_t *)ospf_hdr + sizeof(struct ospfv2_hdr));
 
-    while (if_walker)
+    while (if_handler)
     {
-        memcpy(eth->ether_shost, if_walker->addr, sizeof(eth->ether_shost));
-        ip->ip_src.s_addr = if_walker->ip;
+        memcpy(eth_hdr->ether_shost, if_handler->addr, sizeof(eth_hdr->ether_shost));
+        ip->ip_src.s_addr = if_handler->ip;
         ip->ip_sum = 0;
-        ip->ip_sum = cksum((void *)ip, ip->ip_hl * 4 / 2); // put it as blank for now
-
-        hello_hdr->nmask = if_walker->mask; // set when sending hello
+        ip->ip_sum = cksum((void *)ip, ip->ip_hl * 2); 
+        hello_hdr->nmask = if_handler->mask;
         ospf_hdr->csum = 0;
-        ospf_hdr->csum = cksum((void *)ospf_hdr, (sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_hello_hdr)) / 2); // need to figure out how to calculate this, likely happens before send
-        int rc = sr_send_packet(sr, packet, len, if_walker->name);
-        assert(rc == 0);
-        if_walker = if_walker->next;
+        ospf_hdr->csum = cksum((void *)ospf_hdr, (sizeof(struct ospfv2_hdr) + sizeof(struct ospfv2_hello_hdr)) / 2);
+        int rc = sr_send_packet(sr, packet, len, if_handler->name);
+        if_handler = if_handler->next;
     }
 }
 
