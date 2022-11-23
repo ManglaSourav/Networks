@@ -385,7 +385,7 @@ void handle_pwospf(struct sr_instance *sr,
     {
         pwospf_lock(sr->ospf_subsys);
         if (handle_pwospf_lsu(sr, packet, len, interface))
-            send_updates(sr);
+            post_updates(sr);
         pwospf_unlock(sr->ospf_subsys);
     }
 }
@@ -456,7 +456,7 @@ char handle_pwospf_lsu(struct sr_instance *sr,
             add_new_Link(router, lsu_add->subnet, lsu_add->mask, lsu_add->rid);
         lsu_add = (struct ospfv2_lsu *)((uint8_t *)lsu_add + sizeof(struct ospfv2_lsu));
     }
-    recalculate_rt(sr);
+    calculate_rt(sr);
     return flg;
 }
 
@@ -491,7 +491,7 @@ void handle_pwospf_hello(struct sr_instance *sr,
                 rt_handler->gw.s_addr = iface->neighbor_ip;
             rt_handler = rt_handler->next;
         }
-        send_updates(sr);
+        post_updates(sr);
     }
     else
         update_Router_Time(router);

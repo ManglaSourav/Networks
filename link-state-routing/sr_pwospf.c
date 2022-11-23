@@ -12,15 +12,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-
-#include "sr_pwospf.h"
-#include "sr_router.h"
-#include "sr_protocol.h"
-#include "pwospf_protocol.h"
 #include "sr_if.h"
 #include "sr_rt.h"
 #include "Packet_Helper.h"
 #include "sr_router.h"
+#include "sr_pwospf.h"
+#include "sr_router.h"
+#include "sr_protocol.h"
+#include "pwospf_protocol.h"
 
 /* -- declaration of main thread function for pwospf subsystem --- */
 static void *pwospf_run_thread(void *arg);
@@ -91,14 +90,14 @@ char check_timeout(struct sr_instance *sr)
 }
 
 /*---------------------------------------------------------------------
- * Method: recalculate_rt(..)
+ * Method: calculate_rt(..)
  *
  * Sets up the internal data structures for the pwospf subsystem
  *
  * You may assume that the interfaces have been created and initialized
  * by this point.
  *---------------------------------------------------------------------*/
-void recalculate_rt(struct sr_instance *sr)
+void calculate_rt(struct sr_instance *sr)
 {
     struct sr_if *if_walker = sr->if_list;
     struct sr_rt *rt_walker = sr->routing_table;
@@ -216,9 +215,9 @@ void recalculate_rt(struct sr_instance *sr)
                     // sr_print_if(temp_iface);
 
                     Link *temp_link = search_Link(&(sr->ospf_subsys->head_router),
-                                               temp_iface->neighbor_rid,
-                                               rt_walker->dest.s_addr,
-                                               rt_walker->mask.s_addr);
+                                                  temp_iface->neighbor_rid,
+                                                  rt_walker->dest.s_addr,
+                                                  rt_walker->mask.s_addr);
 
                     if (temp_link == NULL)
                         // printf("temp_link is NULL\n");
@@ -261,12 +260,12 @@ void recalculate_rt(struct sr_instance *sr)
 }
 
 /*---------------------------------------------------------------------
- * Method: send_updates(struct sr_instance* sr)
+ * Method: post_updates(struct sr_instance* sr)
  *
  *This method is called when the packet received by the router is
  *identified to have a type of IP.
  *---------------------------------------------------------------------*/
-void send_updates(struct sr_instance *sr)
+void post_updates(struct sr_instance *sr)
 {
     // first, we find the number of advertisements that we need to make
     // should add all routes in routing table
@@ -311,8 +310,8 @@ void send_updates(struct sr_instance *sr)
     ospf_hdr->audata = 0;
 
     struct ospfv2_lsu_hdr *lsu_hdr = (struct ospfv2_lsu_hdr *)((uint8_t *)ospf_hdr + sizeof(struct ospfv2_hdr));
-    lsu_hdr->seq = sr->ospf_subsys->curr_seq;
-    sr->ospf_subsys->curr_seq++;
+    lsu_hdr->seq = sr->ospf_subsys->state_seq;
+    sr->ospf_subsys->state_seq++;
 
     lsu_hdr->ttl = 255; // arbitrary
     lsu_hdr->num_adv = ad_count;
@@ -463,17 +462,17 @@ static void *pwospf_run_thread(void *arg)
         if (hello_cnt % OSPF_DEFAULT_HELLOINT == 0)
         {
             hello_cnt = 0;
-            hello_all(sr, hello_packet, hello_len);
+            say_hello(sr, hello_packet, hello_len);
         }
         if (update_cnt % OSPF_DEFAULT_LSUINT == 0 || need_update)
         {
-            send_updates(sr);
+            post_updates(sr);
             update_cnt = 0;
         }
 
         // printf("Done checking timeout.\n");
         if (need_update)
-            recalculate_rt(sr);
+            calculate_rt(sr);
 
         pwospf_unlock(sr->ospf_subsys);
         sleep(1);
@@ -486,7 +485,7 @@ static void *pwospf_run_thread(void *arg)
     return NULL;
 } /* -- run_ospf_thread -- */
 
-void hello_all(struct sr_instance *sr, uint8_t *packet, uint32_t len)
+void say_hello(struct sr_instance *sr, uint8_t *packet, uint32_t len)
 {
     // going through the interface list,
     struct sr_if *if_walker = 0;
@@ -519,47 +518,40 @@ int pwospf_init(struct sr_instance *sr)
 
     sr->ospf_subsys = (struct pwospf_subsys *)malloc(sizeof(struct
                                                             pwospf_subsys));
-
     assert(sr->ospf_subsys);
     pthread_mutex_init(&(sr->ospf_subsys->lock), 0);
 
     /* -- handle subsystem initialization here! -- */
     sr->ospf_subsys->head_router.next = NULL;
+    sr->ospf_subsys->state_seq = 1;
     sr->ospf_subsys->head_router.head.next = NULL;
-    sr->ospf_subsys->curr_seq = 1;
 
     // initialize routing table
-    struct sr_if *if_walker = 0;
-    if_walker = sr->if_list;
+    struct sr_if *if_handler = 0;
+    if_handler = sr->if_list;
 
-    // need to set static to 0
     struct sr_rt *rt_walker = sr->routing_table;
+    struct in_addr dest, gw, mask;
     while (rt_walker != NULL)
     {
         rt_walker->static_flag = 1;
         rt_walker = rt_walker->next;
     }
-
-    struct in_addr dest, gw, mask;
-    while (if_walker)
+    while (if_handler)
     {
-        dest.s_addr = if_walker->ip;
+        dest.s_addr = if_handler->ip;
         gw.s_addr = 0;
-        mask.s_addr = if_walker->mask;
-        if (!if_exists(sr, if_walker->name))
-        {
-            sr_add_rt_entry(sr, dest, gw, mask, if_walker->name);
-        }
-        if_walker = if_walker->next;
+        mask.s_addr = if_handler->mask;
+        if (!if_exists(sr, if_handler->name))
+            sr_add_rt_entry(sr, dest, gw, mask, if_handler->name);
+        if_handler = if_handler->next;
     }
-
     /* -- start thread subsystem -- */
     if (pthread_create(&sr->ospf_subsys->thread, 0, pwospf_run_thread, sr))
     {
         perror("pthread_create");
         assert(0);
     }
-
     return 0; /* success */
 } /* -- pwospf_init -- */
 
