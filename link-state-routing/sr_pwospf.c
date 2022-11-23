@@ -39,7 +39,7 @@ char check_timeout(struct sr_instance *sr)
         { // OSPF_NEIGHBOR_TIMEOUT) {
             // printf("Times: %ld %ld\n", curr_time, curr_router->next->time);
             // printf("LINK DOWN DETECTED\n");
-            struct sr_if *iface = sr_get_interface_neighbor_rid(sr, curr_router->next->rid);
+            struct sr_if *iface = sr_get_interface_n_rid(sr, curr_router->next->rid);
             // temp.s_addr = iface->neighbor_ip;
             // printf("Interface: %s\n", iface->name);
             iface->up = 0; // mark the relevant interface as down

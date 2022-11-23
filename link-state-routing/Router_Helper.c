@@ -78,20 +78,6 @@ void add_new_Link(Router *spot, uint32_t ip, uint32_t mask, uint32_t rid)
   new_link->next = t;
 }
 
-// TODO:remove
-void remove_Link(Router *spot, uint32_t ip, uint32_t mask, uint32_t rid)
-{
-  // Link *curr_link = &(spot->head), *t_link = NULL;
-  // while (curr_link->next != NULL &&
-  //        (curr_link->next->ip != ip || curr_link->next->mask != mask || curr_link->next->rid != rid))
-  //   curr_link = curr_link->next;
-
-  // if (curr_link->next != NULL)
-  // {
-  //   t_link = curr_link->next;
-  //   curr_link->next = t_link->next;
-  // }
-}
 
 void remove_All_Links(Router *spot)
 {

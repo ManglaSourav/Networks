@@ -56,24 +56,18 @@ struct sr_if *sr_get_interface(struct sr_instance *sr, const char *name)
     return 0;
 } /* -- sr_get_interface -- */
 
-struct sr_if *sr_get_interface_neighbor_rid(struct sr_instance *sr, uint32_t rid)
+
+struct sr_if *sr_get_interface_n_rid(struct sr_instance *sr, uint32_t rid)
 {
-    struct sr_if *if_walker = 0;
-
-    /* -- REQUIRES -- */
+    struct sr_if *if_handler = 0;
     assert(sr);
-
-    if_walker = sr->if_list;
-
-    while (if_walker)
+    if_handler = sr->if_list;
+    while (if_handler)
     {
-        if (if_walker->neighbor_rid == rid)
-        {
-            return if_walker;
-        }
-        if_walker = if_walker->next;
+        if (if_handler->neighbor_rid == rid)
+            return if_handler;
+        if_handler = if_handler->next;
     }
-
     return 0;
 }
 
